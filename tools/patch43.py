@@ -185,6 +185,53 @@ P6 = P1 + [
     ("camera post-persp fix (caller-selective)", 0x14045c64f, bytes.fromhex("440f28442450"), callrel(0x14045c64f, PCAVE6)[0:5] + b"\x90"),
 ]
 
+# p10 = p6menu (TWD_ALLOW=any, fov >= 15 -> vert+) plus a Lua-controlled channel for the cameras below 15 degrees
+# (dialogue close-ups on long lenses, which p6menu leaves Hor-, i.e. cropped at the sides). The channel is the
+# RenderSetAspectRatio value at 0x140fdeef0: with the force flag never set (p1) the engine only copies it in the viewport
+# sizer (0x14053e127) and never uses it. The 4:3 Lua mod sets it to 1.7 (CH_ON) during gameplay and back to the window
+# aspect while a menu scene is up, so the 3D menu scenes (fov < 15, authored frame art) stay as p6menu draws them.
+CH = 0x140fdeef0
+CH_ON = 1.7
+def cave10():
+    base = CAVE
+    b = bytearray()
+    def here(): return base + len(b)
+    def riprel(op):                                          # op bytes + disp32 placeholder; returns the disp index
+        b.extend(bytes.fromhex(op)); i = len(b); b.extend(b"\0\0\0\0"); return i
+    tcave = here()                                           # frustum: always scale (superset, culling only)
+    b += bytes.fromhex("4883ec28")
+    b += b"\xe8" + struct.pack("<i", TAN - (here() + 5)); b += bytes.fromhex("4883c428")
+    b += bytes.fromhex("f30f5905") + struct.pack("<i", K43 - (here() + 8)) + b"\xc3"
+    pcave = here()
+    b += bytes.fromhex("440f28442458")                       # movaps xmm8,[rsp+0x58]  (the instruction we replaced)
+    b += bytes.fromhex("f30f1083cc010000")                   # movss xmm0,[rbx+0x1cc]  camera fov
+    d_fov = riprel("0f2f05")                                 # comiss xmm0,[kf]
+    b += bytes.fromhex("7300"); j_do = len(b) - 1            # jae do
+    d_ch = riprel("f30f1005")                                # movss xmm0,[CH]
+    d_on = riprel("0f2e05")                                  # ucomiss xmm0,[kon]
+    b += bytes.fromhex("7500"); j_r1 = len(b) - 1            # jne ret
+    b += bytes.fromhex("7a00"); j_r2 = len(b) - 1            # jp ret (NaN)
+    do = len(b)
+    kpos = []
+    for ld, st in (("f30f1007", "f30f1107"), ("f30f104714", "f30f114714")):
+        b += bytes.fromhex(ld) + bytes.fromhex("f30f5905") + b"\x00\x00\x00\x00"; kpos.append(len(b))
+        b += bytes.fromhex(st)
+    ret = len(b); b += b"\xc3"
+    b[j_do] = do - (j_do + 1); b[j_r1] = ret - (j_r1 + 1); b[j_r2] = ret - (j_r2 + 1)
+    while len(b) % 4: b += b"\xcc"
+    k075 = here(); b += struct.pack("<f", 0.75)
+    kf = here(); b += struct.pack("<f", 15.0)
+    kon = here(); b += struct.pack("<f", CH_ON)
+    for p in kpos: b[p - 4:p] = struct.pack("<i", k075 - (base + p))
+    for disp, tgt in ((d_fov, kf), (d_ch, CH), (d_on, kon)):
+        b[disp:disp + 4] = struct.pack("<i", tgt - (base + disp + 4))
+    return bytes(b), tcave, pcave
+C10, TCAVE10, PCAVE10 = cave10()
+P10 = P1 + [
+    ("tan call (frustum)", 0x1404571eb, callrel(0x1404571eb, TAN), callrel(0x1404571eb, TCAVE10)),
+    ("camera post-persp fix (fov>=15 or channel)", 0x14045c64f, bytes.fromhex("440f28442450"), callrel(0x14045c64f, PCAVE10)[0:5] + b"\x90"),
+]
+
 # p7 = p6 + 2D "fit to 16:9 box" layers fit to the 4:3 WIDTH instead of cropping the sides.
 # The UI ortho builder 0x140039110(rcx=matrix, xmm1=left, xmm2=right, xmm3=bottom, [rsp+0x28]=top at entry, ...) is
 # called by the 2D passes with an x range squeezed to 0.75 wide ([0.125,0.875]) for 4:3, which crops 12.5% off each side.
@@ -244,7 +291,7 @@ P_DBGS = P1 + [
 P8 = P6 + [
     ("Lua RenderGetAspectRatio -> 16:9", 0x140679618, callrel(0x140679618, 0x14053e0f0), callrel(0x140679618, 0x14053e0a0)),
 ]
-LEVELS = {"p8": P8, "dbgs": P_DBGS, "p7": P7, "p6": P6, "p5": P5, "p1": P1, "p2": P2, "p3": P3, "p4": P4, "dbg": P_DBG, "dbg0": P_DBG}
+LEVELS = {"p10": P10, "p8": P8, "dbgs": P_DBGS, "p7": P7, "p6": P6, "p5": P5, "p1": P1, "p2": P2, "p3": P3, "p4": P4, "dbg": P_DBG, "dbg0": P_DBG}
 
 
 def rva2off(d, va):
@@ -301,7 +348,7 @@ def main():
     if level != "p1":
         k = rva2off(out, K43)
         assert struct.unpack_from("<f", out, k)[0] == struct.unpack("<f", struct.pack("<f", 4 / 3))[0], "K43 constant moved"
-        cb = C6 if level == "p8" else cave_dbgs() if level == "dbgs" else (C6 + b"\xcc" * (0x200 - len(C6)) + C7) if level == "p7" else C6 if level == "p6" else C5 if level == "p5" else C4 if level == "p4" else ((cave_dbg() if level == "dbg" else bytes.fromhex("440f28442458c3")) if level in ("dbg", "dbg0") else cave_bytes()); co = rva2off(out, CAVE)
+        cb = C10 if level == "p10" else C6 if level == "p8" else cave_dbgs() if level == "dbgs" else (C6 + b"\xcc" * (0x200 - len(C6)) + C7) if level == "p7" else C6 if level == "p6" else C5 if level == "p5" else C4 if level == "p4" else ((cave_dbg() if level == "dbg" else bytes.fromhex("440f28442458c3")) if level in ("dbg", "dbg0") else cave_bytes()); co = rva2off(out, CAVE)
         out[co:co + len(cb)] = cb
         print("cave %#x: %s" % (CAVE, cb.hex()))
     if level == "dbgs":
