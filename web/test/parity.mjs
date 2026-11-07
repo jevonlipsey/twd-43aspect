@@ -1,0 +1,92 @@
+// Runs the browser runtime under node on the real game files and checks its three outputs are byte-identical
+// to the command-line tools (tools/patch43.py p6menu, tools/build_tooltipmod.py --release) and to the build
+// verified on device.
+// usage: node web/test/parity.mjs [WDC.exe] [WDC_pc_ProjectSeason1_data.ttarch2]
+//   env PYTHON (default: python3; needs pycryptodome), TWD_LUAC (luac from tools/build_luac52.sh; without it the
+//   archive is compared with the verified hashes only)
+import fs from 'node:fs';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import vm from 'node:vm';
+import path from 'node:path';
+import zlib from 'node:zlib';
+import { fileURLToPath } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const repo = path.join(here, '..', '..');
+const app = path.join(here, '..', 'app');
+const exePath = process.argv[2] || path.join(repo, 'original', 'WDC.exe');
+const archPath = process.argv[3] || path.join(repo, 'original', 'archives', 'WDC_pc_ProjectSeason1_data.ttarch2');
+for (const f of ['twd43-data.js', 'pako.min.js', 'patcher-runtime.js']) vm.runInThisContext(fs.readFileSync(path.join(app, f), 'utf8'));
+const g = globalThis, T = g.TWD43_DATA;
+const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+const file = (p, name) => new File([fs.readFileSync(p)], name || path.basename(p));
+const zlibCrc = (b) => zlib.crc32(b);
+let bad = 0;
+const expect = (ok, msg) => { console.log((ok ? 'ok   ' : 'FAIL ') + msg); if (!ok) bad++; };
+
+await g.TWD43.load();
+const t0 = Date.now();
+const res = await g.TWD43.patch([file(exePath, 'WDC.exe'), file(archPath)]);
+if (!res.ok) { console.error(res.reason, res.log, res.failures); process.exit(1); }
+console.log('patched in', Date.now() - t0, 'ms,', res.passed, 'checks');
+const got = {};
+for (const o of res.outputs) got[o.name] = Buffer.from(await o.blob.arrayBuffer());
+
+// reference: the CLI
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'twd-parity-'));
+const py = process.env.PYTHON || 'python3';
+execFileSync(py, ['-I', path.join(repo, 'tools', 'patch43.py'), '--level', 'p6', exePath, path.join(tmp, 'WDC.exe')],
+  { stdio: 'pipe', env: { ...process.env, TWD_ALLOW: 'any', TWD_FOVMIN: '15' } });
+const ref = { 'WDC.exe': fs.readFileSync(path.join(tmp, 'WDC.exe')) };
+if (process.env.TWD_LUAC) {
+  // the CLI builder reads its stock Tooltip.lua from original/archives/WDC_pc_ProjectSeason1_data.ttarch2
+  execFileSync(py, ['-I', path.join(repo, 'tools', 'build_tooltipmod.py'), path.join(tmp, 'mod'), '--release'], { stdio: 'pipe' });
+  for (const n of [T.mod.descName, T.mod.archName]) ref[n] = fs.readFileSync(path.join(tmp, 'mod', n));
+}
+fs.rmSync(tmp, { recursive: true, force: true });
+
+const verified = { 'WDC.exe': T.exe.output, [T.mod.descName]: T.mod.outDesc, [T.mod.archName]: T.mod.outArch };
+for (const o of res.outputs) {
+  const h = sha(got[o.name]);
+  expect(h === o.sha256, `${o.name}: runtime reported ${o.sha256.slice(0, 16)}…, bytes hash ${h.slice(0, 16)}…`);
+  expect(h === verified[o.name], `${o.name}: matches the device-verified build ${verified[o.name].slice(0, 16)}…`);
+  if (ref[o.name]) expect(Buffer.compare(got[o.name], ref[o.name]) === 0, `${o.name}: byte-identical to the CLI output (${ref[o.name].length} bytes)`);
+}
+expect(res.inputSha256 === T.exe.pristine, 'input WDC.exe is the pristine Steam build');
+
+// the zip: stored entries laid out like the game folder, each byte-identical to the file served one by one
+{
+  const z = Buffer.from(await res.output.arrayBuffer());
+  expect(res.zipName === 'TWD-4x3-patch.zip' && sha(z) === res.zipSha256, `zip ${res.zipName}: ${z.length} bytes, sha256 ${sha(z).slice(0, 16)}…`);
+  const want = { 'WDC.exe': 'WDC.exe', [`Archives/${T.mod.descName}`]: T.mod.descName, [`Archives/${T.mod.archName}`]: T.mod.archName };
+  const seen = [];
+  let o = 0;
+  while (z.readUInt32LE(o) === 0x04034b50) {
+    const method = z.readUInt16LE(o + 8), crc = z.readUInt32LE(o + 14), size = z.readUInt32LE(o + 18), nl = z.readUInt16LE(o + 26), xl = z.readUInt16LE(o + 28);
+    const name = z.subarray(o + 30, o + 30 + nl).toString(), body = z.subarray(o + 30 + nl + xl, o + 30 + nl + xl + size);
+    expect(method === 0 && want[name] && Buffer.compare(body, got[want[name]]) === 0 && crc === (zlibCrc(body) >>> 0),
+      `zip entry ${name}: stored, crc ok, identical to ${want[name]}`);
+    seen.push(name); o += 30 + nl + xl + size;
+  }
+  expect(seen.length === 3 && Object.keys(want).every((k) => seen.includes(k)), 'zip holds exactly the three files: ' + seen.join(', '));
+  const again = Buffer.from(g.TWD43.makeZip([{ path: 'WDC.exe', bytes: got['WDC.exe'] },
+    { path: `Archives/${T.mod.descName}`, bytes: got[T.mod.descName] }, { path: `Archives/${T.mod.archName}`, bytes: got[T.mod.archName] }]));
+  expect(Buffer.compare(again, z) === 0, 'zip is deterministic');
+}
+
+// negatives
+const r2 = await g.TWD43.patch([new File([got['WDC.exe']], 'WDC.exe'), file(archPath)]);
+expect(r2.reason === 'already_patched', 'patched WDC.exe is recognised: ' + r2.reason);
+const r3 = await g.TWD43.patch([file(exePath, 'WDC.exe')]);
+expect(r3.reason === 'incomplete' && r3.missing.length === 1, 'exe alone asks for the archive: ' + r3.reason + ' ' + r3.missing);
+const r4 = await g.TWD43.patch([file(exePath, 'renamed.bin'), file(archPath, 'other-name.ttarch2')]);
+expect(r4.ok === true, 'renamed files are recognised by their contents: ' + r4.reason);
+const wrong = path.join(path.dirname(archPath), 'WDC_pc_Boot_data.ttarch2');
+if (fs.existsSync(wrong)) {
+  const r5 = await g.TWD43.patch([file(exePath, 'WDC.exe'), file(wrong, 'WDC_pc_ProjectSeason1_data.ttarch2')]);
+  expect(r5.reason === 'verify_failed', 'a different archive is refused: ' + r5.reason + ' ' + r5.failures[0]);
+}
+if (bad) { console.error(bad + ' check(s) failed'); process.exit(1); }
+console.log('parity OK');

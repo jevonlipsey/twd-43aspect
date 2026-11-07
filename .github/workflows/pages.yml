@@ -1,0 +1,46 @@
+name: pages
+
+# publishes the browser patcher (pure JavaScript; web/app/twd43-data.js is generated from tools/patch43.py and
+# mod/ProjectSeason1/Tooltip.lua by tools/gen_web_data.py and committed) to github pages. No game files are needed in ci.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "tools/build_web.sh"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build web patcher
+        run: bash tools/build_web.sh
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

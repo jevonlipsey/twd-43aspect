@@ -316,4 +316,5 @@ def main():
     print("wrote %s sha256 %s" % (a[1], hashlib.sha256(out).hexdigest()))
 
 
-main()
+if __name__ == "__main__":
+    main()
