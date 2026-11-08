@@ -9,7 +9,8 @@ S2/S3/S4/M -> set PC_P43_S<n> on <ProjectSeason<n>>, priority 700: overrides Bri
       that every EpisodeSystem.lua requires) with require(stock copy) + require("TWD43_fix.lua").
 TWD43_fix.lua = season config + mod/TWD43/anchors_<season>.lua (tools/gen_anchor43.py) + mod/TWD43/TWD43_fix.lua.
 All Lua is compiled to the game's Lua 5.2 bytecode and LEn-encrypted (encrypted source is silently ignored).
---release drops the " [43]" markers and the warp tour (mod/TWD43/TWD43_tour.lua, test builds only)."""
+--release drops the " [43]" markers and the warp tour (mod/TWD43/TWD43_tour.lua, test builds only).
+--play (hand test) keeps the markers but drops the forced-wrap choice tail and the tour."""
 import hashlib, os, subprocess, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ttarch2  # noqa: E402
@@ -57,6 +58,7 @@ def luac(src_text, name):
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     release = '--release' in sys.argv
+    play = '--play' in sys.argv   # hand-test build: keeps the " [43]" marker, drops the forced-wrap tail and the tour
     season = args[0]; c = SEASON[season]
     out = args[1] if len(args) > 1 else os.path.join(REPO, 'out', 'fix43_' + season)
     _, stock = ttarch2.read_archive(os.path.join(REPO, 'original', 'archives', 'WDC_pc_%s_data.ttarch2' % c['arch']))
@@ -65,11 +67,11 @@ def main():
     stock_name = 'TWD43_%s_stock.lua' % c['hook'][:-4]
     cfg = 'TWD43_SEASON = "%s"\nTWD43_MARKER = %s\nTWD43_MARKED = {%s}\n' % (
         season, 'nil' if release else '" [43]"', ', '.join('"%s"' % m for m in c['marked']))
-    if not release and c.get('long'):   # S3/S4/M choices keep their stock 2-line widths: no tail there
+    if not release and not play and c.get('long'):   # S3/S4/M choices keep their stock 2-line widths: no tail there
         cfg += 'TWD43_LONG = {%s}\nTWD43_LONG_TAIL = "%s"\n' % (
             ', '.join('["%s"] = true' % m for m in c['long']), LONG_TAIL)
     anchors = open(os.path.join(REPO, 'mod', 'TWD43', 'anchors_%s.lua' % season)).read()
-    tour = '' if release else open(os.path.join(REPO, 'mod', 'TWD43', 'TWD43_tour.lua')).read()
+    tour = '' if (release or play) else open(os.path.join(REPO, 'mod', 'TWD43', 'TWD43_tour.lua')).read()
     fix = cfg + anchors + tour + open(os.path.join(REPO, 'mod', 'TWD43', 'TWD43_fix.lua')).read()
     fix_enc, fix_bc = luac(fix.encode(), 'TWD43_fix.lua')
     if season == 'S1':
