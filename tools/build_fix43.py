@@ -9,7 +9,7 @@ S2/S3/S4/M -> set PC_P43_S<n> on <ProjectSeason<n>>, priority 700: overrides Bri
       that every EpisodeSystem.lua requires) with require(stock copy) + require("TWD43_fix.lua").
 TWD43_fix.lua = season config + mod/TWD43/anchors_<season>.lua (tools/gen_anchor43.py) + mod/TWD43/TWD43_fix.lua.
 All Lua is compiled to the game's Lua 5.2 bytecode and LEn-encrypted (encrypted source is silently ignored).
---release drops the " [43]" markers."""
+--release drops the " [43]" markers and the warp tour (mod/TWD43/TWD43_tour.lua, test builds only)."""
 import hashlib, os, subprocess, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ttarch2  # noqa: E402
@@ -18,20 +18,22 @@ from build_tooltipmod import DESCRIPTOR as S1_DESCRIPTOR, HEADER  # noqa: E402
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEASON = {
     'S1': dict(set='PC_P43_S1X', dest='ProjectSeason1', prio=710, hook='Tooltip.lua', arch='ProjectSeason1',
-               marked=['ui_choice_notification_text', 'ui_helptext_text', 'ui_dialog_Item2Gamepad', 'ui_dialog_Item3Gamepad']),
+               marked=['ui_choice_notification_text', 'ui_helptext_text'] + ['ui_dialog_Item%dGamepad' % i for i in range(1, 5)],
+               long=['ui_dialog_Item%dGamepad' % i for i in range(1, 5)]),
     'S2': dict(set='PC_P43_S2', dest='ProjectSeason2', prio=700, hook='Brightness.lua', arch='ProjectSeason2',
                marked=['ui_reticle_textVerb', 'ui_notification_textExclamation', 'ui_notification_textQuestion',
-                       'ui_death_text'] + ['ui_dialog_button%d' % i for i in range(1, 5)]),
+                       'ui_death_text'] + ['ui_dialog_button%d' % i for i in range(1, 5)],
+               long=['ui_dialog_button%d' % i for i in range(1, 5)]),
     'S3': dict(set='PC_P43_S3', dest='ProjectSeason3', prio=700, hook='Brightness.lua', arch='ProjectSeason3',
                marked=['ui_reticle_textVerb', 'ui_notification_text'] + ['ui_dialog_controller%d' % i for i in range(1, 5)]),
     'S4': dict(set='PC_P43_S4', dest='ProjectSeason4', prio=700, hook='Brightness.lua', arch='ProjectSeason4',
-               marked=['ui_notification_text'] + ['ui_dialog_controller%d' % i for i in range(1, 5)],
-               extra_wrap=11.0),
+               marked=['ui_notification_text'] + ['ui_dialog_controller%d' % i for i in range(1, 5)]),
     'M': dict(set='PC_P43_SM', dest='ProjectSeasonM', prio=700, hook='Brightness.lua', arch='ProjectSeasonM',
               marked=['ui_reticle_textVerb', 'ui_notification_choiceText', 'ui_notification_tutorialText',
-                      'ui_titleCard_textTitle'] + ['ui_dialog_controller%d' % i for i in range(1, 5)],
-              extra_wrap=11.0),
+                      'ui_titleCard_textTitle'] + ['ui_dialog_controller%d' % i for i in range(1, 5)]),
 }
+
+LONG_TAIL = ' wrap test: this option is deliberately long so that it has to break onto a second line'
 
 
 def descriptor(c):
@@ -63,12 +65,12 @@ def main():
     stock_name = 'TWD43_%s_stock.lua' % c['hook'][:-4]
     cfg = 'TWD43_SEASON = "%s"\nTWD43_MARKER = %s\nTWD43_MARKED = {%s}\n' % (
         season, 'nil' if release else '" [43]"', ', '.join('"%s"' % m for m in c['marked']))
+    if not release and c.get('long'):   # S3/S4/M choices keep their stock 2-line widths: no tail there
+        cfg += 'TWD43_LONG = {%s}\nTWD43_LONG_TAIL = "%s"\n' % (
+            ', '.join('["%s"] = true' % m for m in c['long']), LONG_TAIL)
     anchors = open(os.path.join(REPO, 'mod', 'TWD43', 'anchors_%s.lua' % season)).read()
-    if c.get('extra_wrap'):
-        rows = ''.join('  {"ui_dialog_%s%d", 0, %.3f},  -- runtime-only choice agents (not in the scene files)\n'
-                       % (k, i, c['extra_wrap']) for k in ('controller', 'mouse') for i in range(1, 5))
-        anchors = anchors.replace('TWD43_WRAP = {\n', 'TWD43_WRAP = {\n' + rows)
-    fix = cfg + anchors + open(os.path.join(REPO, 'mod', 'TWD43', 'TWD43_fix.lua')).read()
+    tour = '' if release else open(os.path.join(REPO, 'mod', 'TWD43', 'TWD43_tour.lua')).read()
+    fix = cfg + anchors + tour + open(os.path.join(REPO, 'mod', 'TWD43', 'TWD43_fix.lua')).read()
     fix_enc, fix_bc = luac(fix.encode(), 'TWD43_fix.lua')
     if season == 'S1':
         t = open(os.path.join(REPO, 'mod', 'ProjectSeason1', 'Tooltip.lua'), 'rb').read()

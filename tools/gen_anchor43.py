@@ -9,7 +9,8 @@ An agent is CUT at 4:3 when 0.97*h43 < |x| <= 1.03*h169. For each cut agent we m
 itself off-centre (|x| > 0.5*h43), skipping anything under a pin (ui_pin.prop: UI.lua snaps those at runtime) and
 art/debug scenes. Rows: {scene, agent, authored local x, half-height, sign}. At runtime dx = halfH*(16/9-aspect),
 x_new = x - sign*dx (keeps the authored distance from the screen edge, at authored size).
-Dialogue: every agent of ui_dialog*.scene with a "Text Width" gets max width = room left inside 4:3 (wrap)."""
+Dialogue: every agent of ui_dialog*.scene whose effective "Text Width" (own or inherited through its parent props;
+0 = unlimited) is wider than the room left inside 4:3 gets that room as its wrap width (never widened)."""
 import sys, os, math, struct
 HERE = os.path.dirname(os.path.abspath(__file__)); REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
@@ -67,14 +68,53 @@ def fval(seg, key):
     return struct.unpack_from('<f', seg, i + 8)[0] if i >= 0 else None
 
 
-def prop_val(names, dirs, key, depth=0):
+_INDEX = None
+
+
+def _prop_index():
+    global _INDEX
+    if _INDEX is None:
+        _INDEX = {}
+        for d, _, fs in os.walk(RAW):
+            for f in fs:
+                if f.endswith('.prop'):
+                    _INDEX.setdefault(f.lower(), []).append(os.path.join(d, f))
+    return _INDEX
+
+
+def _prop_file_parents(b):
+    """Parent prop names of a .prop file's own PropertySet (header after the class table)."""
+    from scenedump_lite import _names
+    try:
+        ncls = struct.unpack_from('<I', b, 0x10)[0]; p0 = 0x14 + 12 * ncls - 4
+        psz, ver, flags, blk, npar = struct.unpack_from('<IIIII', b, p0)
+    except struct.error:
+        return []
+    if ver != 2 or npar > 20: return []
+    return [_names().get(struct.unpack_from('<Q', b, p0 + 20 + 8 * k)[0], '?') for k in range(npar)]
+
+
+def prop_raw(names, dirs, key, depth=0, seen=None):
+    """(file bytes, offset of key) of the first parent prop (depth-first through the whole parent chain, the way a
+    PropertySet inherits) that defines key; season dirs are preferred over Project and other sets."""
+    seen = set() if seen is None else seen
     for n in names:
-        for d in dirs + ['Project']:
-            p = os.path.join(RAW, d, n)
-            if os.path.exists(p):
-                b = open(p, 'rb').read(); v = fval(b, key)
-                if v is not None: return v
+        if not n or n == '?' or n.lower() in seen or depth > 12: continue
+        seen.add(n.lower())
+        paths = _prop_index().get(n.lower(), [])
+        pref = [os.path.join(RAW, d, n).lower() for d in dirs + ['Project']]
+        paths = sorted(paths, key=lambda q: pref.index(q.lower()) if q.lower() in pref else len(pref))
+        for p in paths[:1]:
+            b = open(p, 'rb').read(); i = b.find(key)
+            if i >= 0: return b, i
+            r = prop_raw(_prop_file_parents(b), dirs, key, depth + 1, seen)
+            if r: return r
     return None
+
+
+def prop_val(names, dirs, key, depth=0):
+    r = prop_raw(names, dirs, key)
+    return struct.unpack_from('<f', r[0], r[1] + 8)[0] if r else None
 
 
 def parents_of(seg):
@@ -131,12 +171,20 @@ def main():
                 if f.startswith('ui_dialog') and not f.startswith('ui_dialogBox'):
                     from scenedump_lite import parent_names
                     pn = parent_names(R[n]['seg'])
-                    w = fval(R[n]['seg'], WIDK) or prop_val(pn, dirs, WIDK)
+                    w = fval(R[n]['seg'], WIDK)
+                    if w is None:                 # inherited through the parent props (0 = unlimited)
+                        w = prop_val(pn, dirs, WIDK)
                     ai = R[n]['seg'].find(ALNK)
-                    al = R[n]['seg'][ai + 8] if ai >= 0 else int(prop_val(pn, dirs, ALNK) and 0 or 2)
+                    if ai >= 0:
+                        al = R[n]['seg'][ai + 8]
+                    else:
+                        ra = prop_raw(pn, dirs, ALNK)
+                        al = ra[0][ra[1] + 8] if ra else 2
                     room = (2 * (h43 - 0.4 - abs(x))) if al == 2 else (h43 - 0.4 - abs(x))
                     import re as _re
                     choice = _re.fullmatch(r'ui_dialog_(controller|button|box|mouse|mouseAJ|Item)\d(Gamepad)?', n)
+                    # only ever NARROW the authored wrap width (or give an unlimited choice line one): a row that
+                    # widened it would change the authored layout (S2 buttons 9.0, S3/M 4.5, S4 7.0 with 2 lines)
                     if room > 0.5 and ((w and w > room) or (choice and not w)):
                         widths.append((f, n, round(w or 0, 3), round(room, 3), al))
                 if not (0.97 * h43 < abs(x) <= 1.03 * h169): continue

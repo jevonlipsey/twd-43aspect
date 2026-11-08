@@ -8,10 +8,8 @@ TWD43_ANCHORS = {
   {"ui_reticle_textVerb", -8.5130, 5.3320, -1},  -- ui_reticle.scene
 }
 TWD43_WRAP = {
-  {"ui_dialog_button1", 0.000, 13.593},  -- ui_dialog.scene authored width 0.000, align 2
-  {"ui_dialog_button2", 0.000, 12.143},  -- ui_dialog.scene authored width 0.000, align 2
-  {"ui_dialog_button3", 0.000, 12.143},  -- ui_dialog.scene authored width 0.000, align 2
-  {"ui_dialog_button4", 0.000, 13.593},  -- ui_dialog.scene authored width 0.000, align 2
+  {"ui_dialog_button2", 9.000, 6.072},  -- ui_dialog.scene authored width 9.000, align 1
+  {"ui_dialog_button3", 9.000, 6.072},  -- ui_dialog.scene authored width 9.000, align 3
   {"ui_dialog_box1", 8.750, 6.093},  -- ui_dialog.scene authored width 8.750, align 2
   {"ui_dialog_box2", 8.750, 6.093},  -- ui_dialog.scene authored width 8.750, align 2
   {"ui_dialog_box3", 8.750, 6.093},  -- ui_dialog.scene authored width 8.750, align 2
