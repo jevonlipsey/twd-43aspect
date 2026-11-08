@@ -69,7 +69,16 @@ local function NoteSeason()
   if not agent or not rawget(_G, "Notification_ShowChoice") then
     return
   end
+  -- every season gates ShowChoice on this pref (the menu's notification toggle): open it for the one call
+  local prefs, k = GetPreferences(), "Enable Reticle Hint Dots"
+  local was = PropertyGet(prefs, k)
+  if not was then
+    pcall(PropertySet, prefs, k, true)
+  end
   Notification_ShowChoice("", 2, 10)
+  if was == false then
+    pcall(PropertySet, prefs, k, false)
+  end
   for i = 1, 90 do
     if AgentExists(agent) then
       AgentSetProperty(agent, "Text String", kNoteText)
