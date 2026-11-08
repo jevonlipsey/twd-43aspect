@@ -29,7 +29,9 @@ shot) "$D/devrun.sh" shot "$TAG-x$(( $(date +%s) - $(cat "$T0F" 2>/dev/null || d
 post)
   [ -f "$LOOP" ] && { kill "$(cat "$LOOP")" 2>/dev/null; rm -f "$LOOP"; echo "screenshot loop stopped"; }
   python3 -I ~/.claude/skills/nova-43aspect/tools/dd-stop.py --owner twd-43aspect 2>&1 | tail -1
-  sleep 5
+  for i in $(seq 1 30); do   # deploy steps refuse while any game process is still tearing down
+    [ -z "$(printf "ps -A | grep -E 'gamescope|wineserver|WDC' | grep -v grep\n" | adb -s "$ADB_SERIAL" shell su | tr -d '\r')" ] && break; sleep 3
+  done
   "$D/deploy-sets.sh" remove $SETS
   TWD_LOCK_HELD=1 "$D/deploy.sh" p6menu 2>&1 | grep -E "deployed|already|deploy:|pristine" || true
   "$D/twd-saves.sh" restore "$TAG" || echo "SAVE RESTORE FAILED: see /data/local/tmp/twd-saves-$TAG (backup also in backup/saves-$TAG.tar)"
