@@ -6,8 +6,4 @@ TWD43_ANCHORS = {
   {"ui_reticle_textNoun", -8.6000, 5.3978, -1},  -- ui_reticle.scene
 }
 TWD43_WRAP = {
-  {"ui_dialog_touch1", 7.450, 4.794},  -- ui_dialog.scene authored width 7.450, align 2
-  {"ui_dialog_touch2", 7.450, 4.794},  -- ui_dialog.scene authored width 7.450, align 2
-  {"ui_dialog_touch3", 7.450, 4.794},  -- ui_dialog.scene authored width 7.450, align 2
-  {"ui_dialog_touch4", 7.450, 4.794},  -- ui_dialog.scene authored width 7.450, align 2
 }

@@ -64,6 +64,113 @@ local function Wrap()
   end
 end
 
+-- 4. Nudge (TWD43_NUDGE, per season, from device measurements): at 4:3 the controller choice cluster renders with its
+--    face-button icons at 0.75 of the text's scale, so the authored text offsets land on the buttons (Y text over the
+--    Y icon, X/B text a row low, A text under the timer bar). Rows: {agent, authored x, authored y, dx, dy, mode, grow}.
+--    mode "offset": (ax, ay) and (dx, dy) apply to the agent's "Text Offset" instead of its position (S2 buttons).
+--    mode "add": the offset is added on top of whatever position the agent has now (its chores re-pose it), once per
+--    new base. Otherwise the agent is only moved from its authored position (or the spot this file put it), and
+--    grow = +1 / -1 moves it half a line up / down per extra wrapped line (text is centred on its row), so a long
+--    Y choice grows upward away from its icon and a long A choice downward. linesOf (8th field) makes an agent follow
+--    another agent's line count instead (the timer bar steps down with a wrapped A choice).
+local kHalfLine = 0.225
+local mNudged = {}
+
+local function Lines(name)
+  local ok, n = pcall(TextGetNumLines, AgentFind(name))
+  if ok and type(n) == "number" and n >= 1 then
+    return n
+  end
+  return 1
+end
+
+local function Nudge()
+  local rows = rawget(_G, "TWD43_NUDGE")
+  if not rows then
+    return
+  end
+  for _, row in ipairs(rows) do
+    local name, ax, ay, dx, dy, mode, grow, linesOf = row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]
+    local half = row[9] or kHalfLine   -- half a text line in this row's units (S2 font differs from S1)
+    if Exists(name) then
+      local pos = AgentGetPos(name)
+      local last = mNudged[name]
+      if mode == "offset" then
+        -- S2: the choice text sits at "Text Offset" (ax, ay) from its icon; move only the text, never the icon
+        local ok, o = pcall(AgentGetProperty, name, "Text Offset")
+        if ok and o then
+          local atHome = math.abs(o.x - ax) < 0.01 and math.abs(o.y - ay) < 0.01
+          local atOurs = last and math.abs(o.x - last.x) < 1e-4 and math.abs(o.y - last.y) < 1e-4
+          if atHome or atOurs then
+            local extra = grow and grow * (Lines(linesOf or name) - 1) * half or 0
+            local tx, ty = ax + dx, ay + dy + extra
+            if math.abs(o.x - tx) > 1e-4 or math.abs(o.y - ty) > 1e-4 then
+              pcall(AgentSetProperty, name, "Text Offset", Vector(tx, ty, o.z or 0))
+            end
+            mNudged[name] = {x = tx, y = ty}
+          end
+        end
+      elseif pos and mode == "add" then
+        if not (last and math.abs(pos.x - last.x) < 1e-4 and math.abs(pos.y - last.y) < 1e-4) then
+          pos.x, pos.y = pos.x + dx, pos.y + dy
+          AgentSetPos(name, pos)
+          mNudged[name] = {x = pos.x, y = pos.y}
+        end
+      elseif pos then
+        local atHome = math.abs(pos.x - ax) < 0.01 and math.abs(pos.y - ay) < 0.01
+        local atOurs = last and math.abs(pos.x - last.x) < 1e-4 and math.abs(pos.y - last.y) < 1e-4
+        if atHome or atOurs then
+          -- linesOf: follow another agent's line count (the timer bar moves down with a wrapped A choice)
+          local extra = grow and grow * (Lines(linesOf or name) - 1) * half or 0
+          local tx, ty = ax + dx, ay + dy + extra
+          if math.abs(pos.x - tx) > 1e-4 or math.abs(pos.y - ty) > 1e-4 then
+            pos.x, pos.y = tx, ty
+            AgentSetPos(name, pos)
+          end
+          mNudged[name] = {x = tx, y = ty}
+        end
+      end
+    end
+  end
+end
+
+-- 5. Glue (TWD43_GLUE, S2-M): during gameplay the exe's vert+ scale (p10 channel) also reaches the UI cameras, so UI
+--    MESHES (face-button icons, timer bars) are drawn at 0.75 about the screen centre while TEXT is drawn unscaled
+--    (device-measured 2026-11-09: icon = 480 + 0.75 * (text - 480) px in S1, S2 and S3). A choice's text therefore
+--    drifts away from its own icon by 0.25 x its distance from the centre (choices sit low: text ~60 px under the
+--    icons). Each row {agent, authored Text Offset x, y} puts the agent's text back at its authored offset from the
+--    icon as drawn: Text Offset = authored + (s - 1) * world position (UI cameras sit at x = y = 0). Text size and
+--    spacing are untouched. Follows the parent at runtime (subtitle / timer re-posing); only ever moves an offset
+--    that is still authored or the value this file set.
+local mGlued = {}
+
+local function Glue()
+  local rows = rawget(_G, "TWD43_GLUE")
+  if not rows then
+    return
+  end
+  local s = TWD43_GLUE_SCALE or 0.75
+  for _, row in ipairs(rows) do
+    local name, ax, ay = row[1], row[2], row[3]
+    if Exists(name) then
+      local okw, w = pcall(AgentGetWorldPos, name)
+      local ok, o = pcall(AgentGetProperty, name, "Text Offset")
+      if okw and w and ok and o then
+        local last = mGlued[name]
+        local atHome = math.abs(o.x - ax) < 0.01 and math.abs(o.y - ay) < 0.01
+        local atOurs = last and math.abs(o.x - last.x) < 1e-4 and math.abs(o.y - last.y) < 1e-4
+        if atHome or atOurs then
+          local tx, ty = ax + (s - 1) * w.x, ay + (s - 1) * w.y
+          if math.abs(o.x - tx) > 1e-4 or math.abs(o.y - ty) > 1e-4 then
+            pcall(AgentSetProperty, name, "Text Offset", Vector(tx, ty, o.z or 0))
+          end
+          mGlued[name] = {x = tx, y = ty}
+        end
+      end
+    end
+  end
+end
+
 local function Mark()
   if not TWD43_MARKER then
     return
@@ -127,6 +234,8 @@ local function Beat()
   end
   pcall(ReAnchor, a)
   pcall(Wrap)
+  pcall(Nudge)
+  pcall(Glue)
   pcall(Mark)
   pcall(Channel, a)
 end

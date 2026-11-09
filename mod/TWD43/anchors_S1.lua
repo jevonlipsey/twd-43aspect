@@ -31,14 +31,14 @@ TWD43_ANCHORS = {
   {"ui_stats_decision5Title", -7.3000, 5.3144, -1},  -- ui_stats.scene
 }
 TWD43_WRAP = {
-  {"ui_dialog_Item1", 0.000, 13.593},  -- ui_dialog.scene authored width 0.000, align 2
-  {"ui_dialog_Item2", 0.000, 13.593},  -- ui_dialog.scene authored width 0.000, align 2
-  {"ui_dialog_Item3", 0.000, 13.593},  -- ui_dialog.scene authored width 0.000, align 2
-  {"ui_dialog_Item4", 0.000, 13.593},  -- ui_dialog.scene authored width 0.000, align 2
-  {"ui_dialog_Item1Gamepad", 0.000, 13.593},  -- ui_dialog.scene authored width 0.000, align 2
-  {"ui_dialog_Item4Gamepad", 0.000, 13.593},  -- ui_dialog.scene authored width 0.000, align 2
-  {"ui_dialog_Item2Gamepad", 16.000, 5.572},  -- ui_dialog.scene authored width 16.000, align 1
-  {"ui_dialog_Item3Gamepad", 16.000, 5.572},  -- ui_dialog.scene authored width 16.000, align 3
+  {"ui_dialog_Item1", 0.000, 24.851},  -- ui_dialog.scene authored width 0.000, align 2
+  {"ui_dialog_Item2", 0.000, 24.851},  -- ui_dialog.scene authored width 0.000, align 2
+  {"ui_dialog_Item3", 0.000, 24.851},  -- ui_dialog.scene authored width 0.000, align 2
+  {"ui_dialog_Item4", 0.000, 24.851},  -- ui_dialog.scene authored width 0.000, align 2
+  {"ui_dialog_Item1Gamepad", 0.000, 24.851},  -- ui_dialog.scene authored width 0.000, align 2
+  {"ui_dialog_Item4Gamepad", 0.000, 24.851},  -- ui_dialog.scene authored width 0.000, align 2
+  {"ui_dialog_Item2Gamepad", 16.000, 10.186},  -- ui_dialog.scene authored width 16.000, align 1
+  {"ui_dialog_Item3Gamepad", 16.000, 10.186},  -- ui_dialog.scene authored width 16.000, align 3
   {"ui_dialog_button1", 0.000, 6.741},  -- ui_dialog.scene authored width 0.000, align 2
   {"ui_dialog_button2", 0.000, 6.741},  -- ui_dialog.scene authored width 0.000, align 2
   {"ui_dialog_button3", 0.000, 6.741},  -- ui_dialog.scene authored width 0.000, align 2

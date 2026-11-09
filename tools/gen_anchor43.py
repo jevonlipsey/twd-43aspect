@@ -23,6 +23,9 @@ SKIP_SCENE = ('credits', 'crowdplay', 'debug', 'fx_', 'platformdata', 'animatabl
 FOVK = struct.pack('<Q', ttarch2.crc64('Field of View'))
 WIDK = struct.pack('<Q', ttarch2.crc64('Text Width'))
 ALNK = struct.pack('<Q', ttarch2.crc64('Text Alignment Horizontal'))
+SCK = struct.pack('<Q', ttarch2.crc64('Text Scale'))
+OFK = struct.pack('<Q', ttarch2.crc64('Text Offset'))
+MLK = struct.pack('<Q', ttarch2.crc64('Text Max Lines To Display'))
 LOCK = bytes.fromhex('3501f227b521abcd')      # "Scene: Location Info" (pos/quat + attach)
 POSK = bytes.fromhex('39c4d804443bfba1')      # older scenes: position Vector3
 ATTK = bytes.fromhex('41a5371ef75bbf42')      # "Scene: Attach Agent"
@@ -180,12 +183,33 @@ def main():
                     else:
                         ra = prop_raw(pn, dirs, ALNK)
                         al = ra[0][ra[1] + 8] if ra else 2
-                    room = (2 * (h43 - 0.4 - abs(x))) if al == 2 else (h43 - 0.4 - abs(x))
+                    # S2 buttons place their text with "Text Offset" (+-0.6 from the icon): count it in the reach
+                    oi = R[n]['seg'].find(OFK)
+                    ofs = struct.unpack_from('<f', R[n]['seg'], oi + 8)[0] if oi >= 0 else 0.0
+                    if oi < 0:
+                        ro = prop_raw(pn, dirs, OFK)
+                        ofs = struct.unpack_from('<f', ro[0], ro[1] + 8)[0] if ro else 0.0
+                    reach = abs(x + ofs)
+                    room = (2 * (h43 - 0.4 - reach)) if al == 2 else (h43 - 0.4 - reach)
+                    # "Text Width" is in unscaled text units: the wrap happens at width * "Text Scale" in the scene
+                    # (device-measured 2026-11-08, S1 choices at scale 0.547 broke at ~half the room without this)
+                    sc = fval(R[n]['seg'], SCK) or prop_val(pn, dirs, SCK) or 1.0
+                    room = room / sc
                     import re as _re
                     choice = _re.fullmatch(r'ui_dialog_(controller|button|box|mouse|mouseAJ|Item)\d(Gamepad)?', n)
                     # only ever NARROW the authored wrap width (or give an unlimited choice line one): a row that
                     # widened it would change the authored layout (S2 buttons 9.0, S3/M 4.5, S4 7.0 with 2 lines)
-                    if room > 0.5 and ((w and w > room) or (choice and not w)):
+                    # an authored width within 10% of the room is left alone (inside the 0.4 edge margin; M's 2-line
+                    # controller choices are 4.5 vs 4.3), and crowd-play icons are never choice text
+                    # a line-capped choice (S3/S4/M controllers: Max Lines 2) is never narrowed: an extra wrapped
+                    # line would be cut off, not shown
+                    mi = R[n]['seg'].find(MLK)
+                    if mi >= 0:
+                        ml = struct.unpack_from('<i', R[n]['seg'], mi + 8)[0]
+                    else:
+                        rm = prop_raw(pn, dirs, MLK)
+                        ml = struct.unpack_from('<i', rm[0], rm[1] + 8)[0] if rm else 0
+                    if ml <= 0 and 'crowdplay' not in n.lower() and room > 0.5 and ((w and w > 1.1 * room) or (choice and not w)):
                         widths.append((f, n, round(w or 0, 3), round(room, 3), al))
                 if not (0.97 * h43 < abs(x) <= 1.03 * h169): continue
                 tgt = n

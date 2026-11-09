@@ -15,8 +15,13 @@ TOUR = dict(set='PC_P43_TOUR', dest='Menu', prio=700)
 
 
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, 'out', 'tour43')
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    first = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--first=')), None)
+    out = args[0] if args else os.path.join(REPO, 'out', 'tour43')
     src = open(os.path.join(REPO, 'mod', 'TWD43', 'DebugLoader.lua'), 'rb').read()
+    if first:   # test: start the tour at another episode (e.g. --first=WalkingDead201)
+        assert b'local kFirst = "WalkingDead101"' in src
+        src = src.replace(b'local kFirst = "WalkingDead101"', ('local kFirst = "%s"' % first).encode())
     enc, bc = luac(src, 'DebugLoader.lua')
     desc, dname, aname = descriptor(TOUR)
     os.makedirs(out, exist_ok=True)

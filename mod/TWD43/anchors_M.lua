@@ -11,8 +11,4 @@ TWD43_ANCHORS = {
   {"ui_titleCard_textTitle", -8.0000, 5.3978, -1},  -- ui_titleCard.scene
 }
 TWD43_WRAP = {
-  {"ui_dialog_touch1", 7.450, 4.894},  -- ui_dialog.scene authored width 7.450, align 2
-  {"ui_dialog_touch2", 7.450, 4.894},  -- ui_dialog.scene authored width 7.450, align 2
-  {"ui_dialog_touch3", 7.450, 4.894},  -- ui_dialog.scene authored width 7.450, align 2
-  {"ui_dialog_touch4", 7.450, 4.894},  -- ui_dialog.scene authored width 7.450, align 2
 }
