@@ -221,12 +221,97 @@ local function Channel(a)
   end
 end
 
+-- 6. Reach (all seasons): the reticle must travel over the whole 4:3 frame. Every Lua screen position (reticle,
+--    hotspot dots, AgentSetWorldPosFromScreenPos, CameraGetScreenPosFromWorldPos ...) is computed by the engine with
+--    its OWN unscaled projection (exe 0x14045aab0 / 0x14045acf0 call tan(fov) directly), while p10 DRAWS every camera
+--    with m0,m5 * 0.75 while the channel is on. So drawn = 0.5 + 0.75 * (u - 0.5): u in [0,1] is only the middle 75%
+--    of the width and the 16:9 picture's height (drawn y 0.125..0.875). Reticle and hotspots stay aligned (both go
+--    through the same mapping); only the reticle's gutter clamp, written for u == screen, held it inside that band
+--    (S2-M 0.04/0.08 -> drawn x 15.5..84.5 %, y 18.5..81.5 %; S1 0.07/0.15 -> x 17.75..82.25 %, y 26.25..73.75 %).
+--    While the channel is on, the clamp is redone in DRAWN space: the stock horizontal gutter from the real 4:3
+--    edges, and a vertical gutter of the same size in pixels, so the reticle reaches all four edges of the frame.
+--    S2-M: ReticleController_GetValidScreenPos (every SetScreenPos and the pan-cam code go through it).
+--    S1: ReticleController_SetScreenPos (gutters + logic_reticle limits, which are authored 0..1 = no limit; a
+--    tighter scene limit is still honoured, a lock (min == max) is left to the stock code).
+--    Pan cameras read the reticle x/y as a chore time; the engine clamps that time to its min/max (the stock code
+--    relies on it to force pans), so u slightly outside 0..1 is safe there.
+local kDrawScale = 0.75             -- tools/patch43.py cave10 k075
+local kReachGutterH = {S1 = 0.07}   -- stock gutters: S1 reticleController.lua gutterH, S2-M kGutterH 0.04
+local mReachAspect, mReachWindow = 1.3333333, false
+local mStockValid, mStockSetS1
+
+local function ReachOn()
+  return mReachWindow and mLastChannel == kOn
+end
+
+local function ReachBounds()
+  local gH = kReachGutterH[TWD43_SEASON] or 0.04
+  local gV = gH * mReachAspect                              -- same pixel gutter vertically
+  local function toU(d) return 0.5 + (d - 0.5) / kDrawScale end
+  return toU(gH), toU(1 - gH), toU(gV), toU(1 - gV)
+end
+
+function TWD43_ReachValid(x, y)
+  if not ReachOn() then
+    return mStockValid(x, y)
+  end
+  local x0, x1, y0, y1 = ReachBounds()
+  return math.min(math.max(x, x0), x1), math.min(math.max(y, y0), y1)
+end
+
+function TWD43_ReachSetS1(x, y, bNoTouch)
+  mStockSetS1(x, y, bNoTouch)                               -- stock side effects (props cache, ReticleUI_Touch)
+  if not ReachOn() then
+    return
+  end
+  local ok, p = pcall(function() return AgentFind("logic_reticle").mProps end)
+  if not ok or not p then
+    return
+  end
+  local hmin, hmax = p["Reticle - Horiztonal Min Percentage Allowed"], p["Reticle - Horiztonal Max Percentage Allowed"]
+  local vmin, vmax = p["Reticle - Vertical Min Percentage Allowed"], p["Reticle - Vertical Max Percentage Allowed"]
+  if type(hmin) ~= "number" or type(hmax) ~= "number" or type(vmin) ~= "number" or type(vmax) ~= "number" then
+    return
+  end
+  if hmin >= hmax or vmin >= vmax then
+    return                                                  -- locked: keep the stock result
+  end
+  local x0, x1, y0, y1 = ReachBounds()
+  -- a scene's own tighter limit: horizontal is a fraction of the 16:9 width (= the drawn width), vertical of the
+  -- 16:9 height (= u)
+  if hmin > 0 then x0 = math.max(x0, 0.5 + (hmin - 0.5) / kDrawScale) end
+  if hmax < 1 then x1 = math.min(x1, 0.5 + (hmax - 0.5) / kDrawScale) end
+  if vmin > 0 then y0 = math.max(y0, vmin) end
+  if vmax < 1 then y1 = math.min(y1, vmax) end
+  local sp = ReticleController_GetScreenPos()
+  sp.x = math.min(math.max(x, x0), x1)
+  sp.y = math.min(math.max(y, y0), y1)
+end
+
+local function Reach(a)
+  mReachAspect = a
+  if TWD43_SEASON == "S1" then
+    local f = rawget(_G, "ReticleController_SetScreenPos")
+    if f and f ~= TWD43_ReachSetS1 and rawget(_G, "ReticleController_GetScreenPos") then
+      mStockSetS1 = f
+      ReticleController_SetScreenPos = TWD43_ReachSetS1
+    end
+  else
+    local f = rawget(_G, "ReticleController_GetValidScreenPos")
+    if f and f ~= TWD43_ReachValid then
+      mStockValid = f
+      ReticleController_GetValidScreenPos = TWD43_ReachValid
+    end
+  end
+end
+
 local function Beat()
   if rawget(_G, "TWD43_TourBeat") then   -- test builds only (mod/TWD43/TWD43_tour.lua)
     pcall(TWD43_TourBeat)
   end
   local a = WindowAspect()
-  if not a or a >= 1.7777 then
+  mReachWindow = a ~= nil and a < 1.7777
+  if not mReachWindow then
     return
   end
   if a < 1.3333333 then
@@ -238,6 +323,7 @@ local function Beat()
   pcall(Glue)
   pcall(Mark)
   pcall(Channel, a)
+  pcall(Reach, a)
 end
 
 local function Keeper()

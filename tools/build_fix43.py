@@ -10,6 +10,7 @@ S2/S3/S4/M -> set PC_P43_S<n> on <ProjectSeason<n>>, priority 700: overrides Bri
 TWD43_fix.lua = season config + mod/TWD43/anchors_<season>.lua (tools/gen_anchor43.py) + mod/TWD43/TWD43_fix.lua.
 All Lua is compiled to the game's Lua 5.2 bytecode and LEn-encrypted (encrypted source is silently ignored).
 --release drops the " [43]" markers and the warp tour (mod/TWD43/TWD43_tour.lua, test builds only).
+--noglue leaves out the choice Glue/Nudge rows (TWD43_GLUE/TWD43_NUDGE stay nil -> those sections are inert).
 --play (hand test) keeps the markers but drops the forced-wrap choice tail and the tour.
 --diag (S1 only, test) = test build + mod/TWD43/TWD43_diag.lua: choice widths flip stock/ours every 3 s, the long
       tail only on Item1/Item2Gamepad, and the tour stays in WalkingDead101 (one recorded run A/Bs the layout)."""
@@ -103,9 +104,10 @@ def main():
     if not release and not play and longs:   # S3/S4/M choices keep their stock 2-line widths: no tail there
         cfg += 'TWD43_LONG = {%s}\nTWD43_LONG_TAIL = "%s"\n' % (
             ', '.join('["%s"] = true' % m for m in longs), LONG_TAIL)
-    if c.get('glue'):
+    noglue = '--noglue' in sys.argv   # S4/M: the choice Glue/Nudge rows are not device-verified yet; ship without them
+    if c.get('glue') and not noglue:
         cfg += 'TWD43_GLUE = {\n%s}\n' % ''.join('  {"%s", %r, %r},\n' % r for r in c['glue'])
-    if c.get('nudge'):
+    if c.get('nudge') and not noglue:
         lua = lambda v: 'nil' if v is None else ('"%s"' % v if isinstance(v, str) else repr(v))
         cfg += 'TWD43_NUDGE = {\n%s}\n' % ''.join('  {%s},\n' % ', '.join(lua(v) for v in r) for r in c['nudge'])
     anchors = open(os.path.join(REPO, 'mod', 'TWD43', 'anchors_%s.lua' % season)).read()
