@@ -4,67 +4,89 @@
   TWD_LUAC=<luac from tools/build_luac52.sh> python3 tools/gen_web_data.py [web/app/twd43-data.js]
 
 What goes in, and why it is safe to publish:
-  - the exe edits of `patch43.py --level p6` with TWD_ALLOW=any TWD_FOVMIN=15 (build "p6menu"):
-    our cave bytes and our replacement bytes, plus the few original bytes at each site that the
-    patcher checks before writing (the same check table the CLI uses);
-  - the set descriptor (our own Lua source, plain text; the page encrypts it);
-  - our Tooltip.lua (mod/ProjectSeason1/Tooltip.lua, release build) compiled to the game's Lua 5.2
-    bytecode. It is entirely our own code: it require()s the stock script by name and never
-    contains it. The page takes the stock Tooltip.lua from the user's own archive;
+  - the exe edits of `patch43.py --level p10` (vert+ camera): our cave bytes and our replacement bytes, plus the few
+    original bytes at each site that the patcher checks before writing (the same check table the CLI uses);
+  - the five per-season resource sets of `build_fix43.py <season> --release` (flags from build_fix43.RELEASE):
+    each set's descriptor (our own Lua source, plain text; the page encrypts it) and our own compiled Lua (Lua 5.2
+    bytecode of mod/TWD43/* and mod/ProjectSeason1/Tooltip.lua). The only game file in any set is S1's stock
+    Tooltip.lua (renamed TWD43_Tooltip_stock.lua): the page takes it from the user's own
+    WDC_pc_ProjectSeason1_data.ttarch2 and checks its hash. S2/S3/S4/M replace an empty stock chunk outright;
   - the archive key and the Blowfish tables (public: TTG Tools, the digits of pi);
   - the hashes the page checks its inputs and outputs against.
 """
-import base64, hashlib, json, os, struct, sys
+import base64, hashlib, json, os, struct, subprocess, sys, tempfile
 
-os.environ['TWD_ALLOW'] = 'any'
-os.environ['TWD_FOVMIN'] = '15'
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-import patch43  # noqa: E402  (reads the env above at import)
+import patch43  # noqa: E402
 import ttarch2  # noqa: E402
-import build_tooltipmod as btm  # noqa: E402
+import build_fix43  # noqa: E402
 from _bf_tables import P, S  # noqa: E402
 
-OUT_EXE = '0884f3fed72b76e70b73540357a9b7643b00853f907bfffc6377f2e984ad683b'   # p6menu, verified on device
-OUT_DESC = 'c45f2a17f721b056bb21b49f1fcbeea5c9685b9d480e3dc150fdf66a8a84ee53'
-OUT_ARCH = '89415229e30900f85fff8f1f633afd15dcd8a3d61522240dbc2a4e350d51d5fb'
+LEVEL = 'p10'
+OUT_EXE = '85fb1aa64867d41aa17203ed5a853b16bc817376e707a0c2cbaf543d6471824a'   # p10, verified on device
 STOCK_TOOLTIP = 'dd4489890f066ee30d523fc0f929a61087daf12f058965234bab198b840f93f3'   # Tooltip.lua in the Steam build
-# Earlier outputs of tools/patch43.py: recognised as "already patched".
+SOURCE_ARCHIVE = 'WDC_pc_ProjectSeason1_data.ttarch2'
+# Earlier outputs of tools/patch43.py / this patcher: recognised as "already patched".
 PATCHED = {
     'e94771718e7a7ce709d1eea6e7f104ffe437f4019ed8636b90226062357d7327': 'unstub',
     '164697f8b5b186f18e83d0db2e9d43c6fc7777e194219070896a1b1df16780fb': 'p1',
     '837ebcc19dfd199087519efc56b8dfdc636a4e6515c1571d0aa8e6106a65dba6': 'p2',
-    OUT_EXE: 'p6menu (this patcher)',
+    '0884f3fed72b76e70b73540357a9b7643b00853f907bfffc6377f2e984ad683b': 'p6menu (patcher v1.0)',
+    OUT_EXE: 'p10 (this patcher)',
 }
+
+
+def build_sets(luac):
+    """Build every season's release set with the CLI and turn it into page data."""
+    sets = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for season in ('S1', 'S2', 'S3', 'S4', 'M'):
+            out = os.path.join(tmp, season)
+            subprocess.run([sys.executable, '-I', os.path.join(HERE, 'build_fix43.py'), season, out, '--release']
+                           + build_fix43.RELEASE[season], check=True, stdout=subprocess.DEVNULL,
+                           env=dict(os.environ, TWD_LUAC=luac))
+            c = build_fix43.SEASON[season]
+            desc, dname, aname = build_fix43.descriptor(c)
+            raw_desc = open(os.path.join(out, dname), 'rb').read()
+            raw_arch = open(os.path.join(out, aname), 'rb').read()
+            assert ttarch2.decrypt_lua(raw_desc) == desc.encode()
+            _, files = ttarch2.read_archive(os.path.join(out, aname))
+            entries = []
+            for f in files:   # archive order is irrelevant: the writer sorts by name hash
+                if f['name'] == 'TWD43_Tooltip_stock.lua':
+                    assert hashlib.sha256(f['data']).hexdigest() == STOCK_TOOLTIP
+                    entries.append(dict(name=f['name'], stock='Tooltip.lua'))
+                else:
+                    assert f['data'][:4] == b'\x1bLEn'
+                    entries.append(dict(name=f['name'], bytecode=base64.b64encode(ttarch2.decrypt_lua(f['data'])).decode()))
+            sets.append(dict(season=season, descName=dname, archName=aname, descriptor=desc, files=entries,
+                             outDesc=hashlib.sha256(raw_desc).hexdigest(), outArch=hashlib.sha256(raw_arch).hexdigest()))
+    return sets
 
 
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, 'web', 'app', 'twd43-data.js')
     luac = os.environ.get('TWD_LUAC') or sys.exit('set TWD_LUAC to the luac built by tools/build_luac52.sh')
     k43 = struct.pack('<f', 4 / 3)
-    patches = [dict(name=n, va=va, old=o.hex(), new=w.hex()) for n, va, o, w in patch43.P6]
-    bc = btm.compile_lua(luac, os.path.join(REPO, 'mod', 'ProjectSeason1', 'Tooltip.lua'), True)
-    assert b'TWD43_Tooltip_stock.lua' in bc
+    patches = [dict(name=n, va=va, old=o.hex(), new=w.hex()) for n, va, o, w in patch43.LEVELS[LEVEL]]
     data = dict(
-        version='v1.0',
-        exe=dict(pristine=patch43.PRISTINE, output=OUT_EXE, patched=PATCHED, base=patch43.BASE,
-                 keepBind=True, caveVa=patch43.CAVE, cave=patch43.C6.hex(), k43Va=patch43.K43, k43=k43.hex(),
+        version='v2.0',
+        exe=dict(level=LEVEL, pristine=patch43.PRISTINE, output=OUT_EXE, patched=PATCHED, base=patch43.BASE,
+                 keepBind=True, caveVa=patch43.CAVE, cave=patch43.C10.hex(), k43Va=patch43.K43, k43=k43.hex(),
                  patches=patches),
-        mod=dict(set=btm.SET, descName=btm.DESC, archName=btm.ARCH, descriptor=btm.DESCRIPTOR,
-                 tooltipBytecode=base64.b64encode(bc).decode(), tooltipName='Tooltip.lua',
-                 stockName='TWD43_Tooltip_stock.lua', stockSha256=STOCK_TOOLTIP,
-                 sourceArchive='WDC_pc_ProjectSeason1_data.ttarch2', outDesc=OUT_DESC, outArch=OUT_ARCH,
-                 chunk=0x10000),
+        mod=dict(sourceArchive=SOURCE_ARCHIVE, stockName='Tooltip.lua', stockSha256=STOCK_TOOLTIP, chunk=0x10000,
+                 sets=build_sets(luac)),
         blowfish=dict(key=ttarch2.KEY.hex(), P=list(P), S=[list(s) for s in S]),
     )
-    js = ('/* Generated by tools/gen_web_data.py from tools/patch43.py and mod/ProjectSeason1/Tooltip.lua. Do not edit.\n'
+    js = ('/* Generated by tools/gen_web_data.py from tools/patch43.py and tools/build_fix43.py. Do not edit.\n'
           ' * Contains no game code: our patch bytes, the few original bytes each patch site is checked against,\n'
-          ' * our own Lua (descriptor source and compiled Tooltip.lua), public cipher tables and known hashes. */\n'
+          ' * our own Lua (set descriptors as source, mod scripts compiled), public cipher tables and known hashes. */\n'
           'globalThis.TWD43_DATA = {\n' +
           ',\n'.join('  %s: %s' % (k, json.dumps(v, separators=(',', ':'))) for k, v in data.items()) + '\n};\n')
     open(out, 'w').write(js)
-    print('wrote', out, len(js), 'bytes; tooltip bytecode sha256', hashlib.sha256(bc).hexdigest())
+    print('wrote', out, len(js), 'bytes;', ', '.join('%s %s' % (s['season'], s['outArch'][:12]) for s in data['mod']['sets']))
 
 
 if __name__ == '__main__':

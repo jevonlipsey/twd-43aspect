@@ -5,8 +5,8 @@
  *   TWD43.patch(File[]) -> Promise<{ok, reason, output, outputs, log, passed, failed, skipped,
  *                                   failures, missing, inputSha256, outputSha256, version}>
  * The user hands over WDC.exe and WDC_pc_ProjectSeason1_data.ttarch2, together or one pick at a time;
- * the result is a zip laid out like the game folder (the patched WDC.exe and two new files for Archives/),
- * and the same three files one by one.
+ * the result is a zip laid out like the game folder (the patched WDC.exe and the new files for Archives/),
+ * and the same files one by one.
  * Add ?mock to the URL to use mock-runtime.js instead of the real runtime (dev only).
  */
 (function () {
@@ -26,9 +26,9 @@
     busy: $('view-busy'), busyTitle: $('busy-title'), busyFile: $('busy-file'),
     busyNote: $('busy-note'), busyElapsed: $('busy-elapsed'),
     ok: $('view-ok'), okTitle: $('ok-title'), okVerified: $('ok-verified'),
-    okIn: $('ok-in-hash'), okOut: $('ok-out-hash'), okDesc: $('ok-desc-hash'), okArch: $('ok-arch-hash'),
+    okIn: $('ok-in-hash'), okOut: $('ok-out-hash'), okMore: $('ok-more-hashes'),
     download: $('download'), downloadSize: $('download-size'),
-    downloadExe: $('download-exe'), downloadDesc: $('download-desc'), downloadArch: $('download-arch'),
+    downloadExe: $('download-exe'), downloadFiles: $('download-files'),
     fail: $('view-fail'), failTitle: $('fail-title'), failTitleText: $('fail-title-text'),
     failBody: $('fail-body'), failFailures: $('fail-failures'), failCount: $('fail-count'), failListTitle: $('fail-list-title'),
     failList: $('fail-list'), addMore: $('add-more'), failHashes: $('fail-hashes'), failIn: $('fail-in-hash'),
@@ -87,7 +87,9 @@
   function revokeDownload() {
     downloadUrls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) { /* ignore */ } });
     downloadUrls = [];
-    [el.download, el.downloadExe, el.downloadDesc, el.downloadArch].forEach(function (a) { a.removeAttribute('href'); });
+    [el.download, el.downloadExe].forEach(function (a) { a.removeAttribute('href'); });
+    Array.prototype.slice.call(el.downloadFiles.querySelectorAll('a.gen')).forEach(function (a) { a.remove(); });
+    el.okMore.textContent = '';
   }
 
   function focusHeading(h) {
@@ -262,7 +264,7 @@
 
   function showResult(res, file) {
     if (res.version) setVersion(res.version);
-    if (res.ok === true && res.reason === 'ok' && res.output && res.output.size && res.outputs && res.outputs.length === 3) { showOk(res); return; }
+    if (res.ok === true && res.reason === 'ok' && res.output && res.output.size && res.outputs && res.outputs.length >= 2) { showOk(res); return; }
     if (res.ok === true) {   // contract violation, don't hand out an empty file
       res = failFromUi('error', 'The patcher reported success but returned no output file.', file && file.name, res.log);
     }
@@ -281,18 +283,25 @@
     downloadUrls.push(zipUrl);
     el.download.href = zipUrl;
     if (res.zipName) el.download.setAttribute('download', res.zipName);
-    var links = [el.downloadExe, el.downloadDesc, el.downloadArch], hashes = [el.okOut, el.okDesc, el.okArch];
     res.outputs.forEach(function (o, i) {
-      var url = URL.createObjectURL(o.blob);
+      var url = URL.createObjectURL(o.blob), a, hash;
       downloadUrls.push(url);
-      links[i].href = url;
-      links[i].setAttribute('download', o.name);
-      hashes[i].textContent = o.sha256 || 'unavailable';
+      if (i === 0) { a = el.downloadExe; hash = el.okOut; }
+      else {   // one link and one hash row per new Archives file
+        a = document.createElement('a'); a.className = 'btn gen'; a.textContent = o.name;
+        el.downloadFiles.appendChild(a);
+        var row = document.createElement('div'), dt = document.createElement('dt');
+        hash = document.createElement('dd'); hash.className = 'mono';
+        dt.textContent = o.name; row.appendChild(dt); row.appendChild(hash); el.okMore.appendChild(row);
+      }
+      a.href = url;
+      a.setAttribute('download', o.name);
+      hash.textContent = o.sha256 || 'unavailable';
     });
     el.downloadSize.textContent = fmtBytes(res.output.size);
 
     var passed = res.passed | 0;
-    el.okVerified.textContent = 'Verified: ' + passed + ' check' + (passed === 1 ? '' : 's') + ' passed. All three files match the build tested on the Retroid Pocket Nova.';
+    el.okVerified.textContent = 'Verified: ' + passed + ' check' + (passed === 1 ? '' : 's') + ' passed. All ' + res.outputs.length + ' files match the published build.';
     el.okIn.textContent = res.inputSha256 || 'unavailable';
     setLog(res.log);
     show('ok');

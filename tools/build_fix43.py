@@ -5,8 +5,8 @@
 
 S1 -> set PC_P43_S1X on <ProjectSeason1>, priority 710: overrides Tooltip.lua again (the shipped label fix from
       mod/ProjectSeason1/Tooltip.lua + require("TWD43_fix.lua")); the shipped PC_P43_S1 set stays untouched beside it.
-S2/S3/S4/M -> set PC_P43_S<n> on <ProjectSeason<n>>, priority 700: overrides Brightness.lua (an empty stock chunk
-      that every EpisodeSystem.lua requires) with require(stock copy) + require("TWD43_fix.lua").
+S2/S3/S4/M -> set PC_P43_S<n> on <ProjectSeason<n>>, priority 700: overrides Brightness.lua (an EMPTY stock chunk
+      that every EpisodeSystem.lua requires; hash-checked) with require("TWD43_fix.lua"). No game file in these sets.
 TWD43_fix.lua = season config + mod/TWD43/anchors_<season>.lua (tools/gen_anchor43.py) + mod/TWD43/TWD43_fix.lua.
 All Lua is compiled to the game's Lua 5.2 bytecode and LEn-encrypted (encrypted source is silently ignored).
 --release drops the " [43]" markers and the warp tour (mod/TWD43/TWD43_tour.lua, test builds only).
@@ -61,8 +61,24 @@ SEASON = {
               # UISeasonM ui_dialog_controllerFacebutton{Down,Right,Left,Up}.prop (Text Scale 1.5)
               glue=[('ui_dialog_controller1', 0.0, -0.428), ('ui_dialog_controller2', 0.38, 0.025),
                     ('ui_dialog_controller3', -0.38, 0.025), ('ui_dialog_controller4', 0.0, 0.48)],
-              nudge=[('ui_dialog_timerParent', 0.0, -4.85, 0.0, -0.45, None, None)]),   # 1.35 under the cluster
+              nudge=[('ui_dialog_timerParent', 0.0, -4.85, 0.0, -0.45, None, None)],   # 1.35 under the cluster
+              # hover label (UISeasonM ui_reticle.scene: noun at (1.0, 0.85) from ui_reticle_expandDefaultParent, which
+              # follows the hotspot dot; verb 0.2 above the noun; Text Offset inherited 0 from module_text2.prop):
+              # text is drawn unshrunk while the dot is drawn at 0.75, so glue the text back beside the dot as drawn
+              labelglue=[('ui_reticle_textNoun', 0.0, 0.0), ('ui_reticle_textVerb', 0.0, 0.0)]),
 }
+
+# Stock Brightness.lua of S2/S3/S4/M (LEn bytes): each is an EMPTY chunk (one RETURN, checked with luac -l), so our
+# hook replaces it outright and the set carries no game file (the web patcher can build it with no game data).
+EMPTY_BRIGHTNESS = {
+    '6c5f353f60cf969933be582eaf09fa8ea55bf61bb23fa393511bfaf675afc5fa',   # ProjectSeason2
+    'df9b0d2a3d349cfeeb530576fd88ab3ec53b44aa5d0414e85a504d9686430b66',   # ProjectSeason3
+    'bf2101763ed87e0ad5ea72b17c0f4a354fe2f93c5998da24e52553e9d6074499',   # ProjectSeason4
+    'ac7ba463aa31b09f58d769861621e2b688047591610fb73e10d1e353a67d056a',   # ProjectSeasonM
+}
+
+# The shipped build: build flags per season for `--release` (tools/gen_web_data.py and tools/release43.sh use this).
+RELEASE = {'S1': [], 'S2': [], 'S3': [], 'S4': ['--noglue'], 'M': ['--noglue']}
 
 LONG_TAIL = ' wrap test: this option is deliberately long so that it has to break onto a second line'
 
@@ -105,8 +121,10 @@ def main():
         cfg += 'TWD43_LONG = {%s}\nTWD43_LONG_TAIL = "%s"\n' % (
             ', '.join('["%s"] = true' % m for m in longs), LONG_TAIL)
     noglue = '--noglue' in sys.argv   # S4/M: the choice Glue/Nudge rows are not device-verified yet; ship without them
-    if c.get('glue') and not noglue:
-        cfg += 'TWD43_GLUE = {\n%s}\n' % ''.join('  {"%s", %r, %r},\n' % r for r in c['glue'])
+    # --labelglue: Michonne hover-label rows, never seen on device (2026-11-09), so not in the shipped build
+    glue = ([] if noglue else c.get('glue', [])) + (c.get('labelglue', []) if '--labelglue' in sys.argv else [])
+    if glue:
+        cfg += 'TWD43_GLUE = {\n%s}\n' % ''.join('  {"%s", %r, %r},\n' % r for r in glue)
     if c.get('nudge') and not noglue:
         lua = lambda v: 'nil' if v is None else ('"%s"' % v if isinstance(v, str) else repr(v))
         cfg += 'TWD43_NUDGE = {\n%s}\n' % ''.join('  {%s},\n' % ', '.join(lua(v) for v in r) for r in c['nudge'])
@@ -134,9 +152,11 @@ def main():
         hook_src = t + b'\nrequire("TWD43_fix.lua")\n'
         stock_name = 'TWD43_Tooltip_stock.lua'
     else:
-        hook_src = ('require("%s")\nrequire("TWD43_fix.lua")\n' % stock_name).encode()
+        assert hashlib.sha256(hook_stock).hexdigest() in EMPTY_BRIGHTNESS, 'stock Brightness.lua is no longer empty'
+        hook_src = b'require("TWD43_fix.lua")\n'
+        stock_name = None
     hook_enc, hook_bc = luac(hook_src, c['hook'])
-    files = [(c['hook'], hook_enc), (stock_name, hook_stock), ('TWD43_fix.lua', fix_enc)]
+    files = [(c['hook'], hook_enc)] + ([(stock_name, hook_stock)] if stock_name else []) + [('TWD43_fix.lua', fix_enc)]
     desc, dname, aname = descriptor(c)
     os.makedirs(out, exist_ok=True)
     ttarch2.write_archive(os.path.join(out, aname), files)
@@ -144,7 +164,8 @@ def main():
     _, back = ttarch2.read_archive(os.path.join(out, aname))
     got = {f['name']: f['data'] for f in back}
     assert ttarch2.decrypt_lua(got[c['hook']]) == hook_bc and ttarch2.decrypt_lua(got['TWD43_fix.lua']) == fix_bc
-    assert got[stock_name] == hook_stock
+    assert stock_name is None or got[stock_name] == hook_stock
+    assert set(got) == {n for n, _ in files}
     assert ttarch2.decrypt_lua(open(os.path.join(out, dname), 'rb').read()) == desc.encode()
     open(os.path.join(out, 'TWD43_fix.src.lua'), 'w').write(fix)   # for the Mac stub test (not deployed)
     for n in (dname, aname):

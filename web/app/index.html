@@ -14,7 +14,7 @@
 
   <header class="head">
     <h1>The Walking Dead Definitive 4:3 Patcher</h1>
-    <p class="lede">Makes The Walking Dead: The Telltale Definitive Series fill 4:3 screens (Retroid Pocket, DroidDeck, 4:3 monitors) with no black bars: the 3D scenes keep their full width, and the interaction label stays inside the view.</p>
+    <p class="lede">Makes The Walking Dead: The Telltale Definitive Series fill 4:3 screens (Retroid Pocket, DroidDeck, 4:3 monitors) with no black bars: the 3D scenes keep their full width and show more above and below, and in all five games the labels, notifications, choice prompts and the reticle stay inside the 4:3 view.</p>
     <p class="privacy">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.7-4.7 1.4 1.4-6.1 6.1Z"/></svg>
       <span>Everything runs locally in your browser. Your <code>WDC.exe</code> and game archive are never uploaded and never leave this device.</span>
@@ -57,7 +57,7 @@
         <span class="drop-sub">or drag and drop them here</span>
       </label>
       <p class="hint">Can't select the files on Android? In the file picker's menu, switch to “All files” or “Browse”.</p>
-      <p class="hint">Why the archive: the fix for the interaction label runs the game's own <code>Tooltip.lua</code> and then moves the label. That script is Telltale's, so it is not shipped here; the page copies it from your archive.</p>
+      <p class="hint">Why the archive: the Season One fix runs the game's own <code>Tooltip.lua</code> and then moves the label. That script is Telltale's, so it is not shipped here; the page copies it from your archive.</p>
     </section>
 
     <!-- Busy -->
@@ -85,29 +85,26 @@
       <dl class="hashes">
         <div><dt>Input SHA-256 (WDC.exe)</dt><dd id="ok-in-hash" class="mono"></dd></div>
         <div><dt>Output SHA-256 (WDC.exe)</dt><dd id="ok-out-hash" class="mono"></dd></div>
-        <div><dt>Output SHA-256 (_resdesc_50_PC_P43_S1_01.lua)</dt><dd id="ok-desc-hash" class="mono"></dd></div>
-        <div><dt>Output SHA-256 (WDC_pc_PC_P43_S1_data.ttarch2)</dt><dd id="ok-arch-hash" class="mono"></dd></div>
       </dl>
+      <details class="more-hashes"><summary>SHA-256 of the new Archives files</summary><dl id="ok-more-hashes" class="hashes"></dl></details>
 
       <a id="download" class="btn primary big" href="#" download="TWD-4x3-patch.zip">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v9.2l3.6-3.6L18 10l-6 6-6-6 1.4-1.4L11 12.2V3ZM5 18h14v3H5v-3Z"/></svg>
         <span>Download <span class="nowrap">TWD-4x3-patch.zip</span></span>
       </a>
       <p id="download-size" class="muted center"></p>
-      <p class="muted">The zip is laid out like the game folder: <code>WDC.exe</code>, plus two new files in <code>Archives</code>. If you can't unzip on your device, download the three files one by one and put <code>WDC.exe</code> in the game folder and the other two in its <code>Archives</code> folder:</p>
-      <div class="actions">
+      <p class="muted">The zip is laid out like the game folder: <code>WDC.exe</code>, plus ten new files in <code>Archives</code> (two per game: Season One, Two, A New Frontier, The Final Season, Michonne). If you can't unzip on your device, download the files one by one and put <code>WDC.exe</code> in the game folder and all the others in its <code>Archives</code> folder:</p>
+      <div id="download-files" class="actions">
         <a id="download-exe" class="btn" href="#" download="WDC.exe">WDC.exe</a>
-        <a id="download-desc" class="btn" href="#" download="_resdesc_50_PC_P43_S1_01.lua">_resdesc_50_PC_P43_S1_01.lua</a>
-        <a id="download-arch" class="btn" href="#" download="WDC_pc_PC_P43_S1_data.ttarch2">WDC_pc_PC_P43_S1_data.ttarch2</a>
       </div>
 
       <h3>Install it</h3>
       <ol class="steps">
         <li>Close the game. In the game folder, rename your original <code>WDC.exe</code> to <code>WDC.exe.bak</code>. Keep it as your backup.</li>
-        <li>Unzip <code>TWD-4x3-patch.zip</code> into the game folder. It adds the new <code>WDC.exe</code> and two new files inside <code>Archives</code>; nothing else is replaced. On DroidDeck the game folder is <code>/mnt/droiddeck-sd/steamapps/common/The Walking Dead The Telltale Definitive Series/</code> (internal storage: <code>/root/.local/share/Steam/steamapps/common/The Walking Dead The Telltale Definitive Series/</code>), and your downloads are in <code>/root/Storage/Download</code>.</li>
+        <li>Unzip <code>TWD-4x3-patch.zip</code> into the game folder. It adds the new <code>WDC.exe</code> and ten new files inside <code>Archives</code>; nothing else is replaced. On DroidDeck the game folder is <code>/mnt/droiddeck-sd/steamapps/common/The Walking Dead The Telltale Definitive Series/</code> (internal storage: <code>/root/.local/share/Steam/steamapps/common/The Walking Dead The Telltale Definitive Series/</code>), and your downloads are in <code>/root/Storage/Download</code>.</li>
         <li>Launch the game through Steam as usual: the patched <code>WDC.exe</code> still needs Steam running. Play fullscreen at <strong>1280x960</strong>. On DroidDeck, set Resolution to <strong>Match screen (1280x960)</strong> and 16:9 game fit to <strong>Stretch</strong> (or off).</li>
         <li>A game update or Steam's “Verify integrity of game files” puts the original <code>WDC.exe</code> back. Patch again afterwards.</li>
-        <li>To undo: delete the new <code>WDC.exe</code>, rename <code>WDC.exe.bak</code> back to <code>WDC.exe</code>, and delete <code>_resdesc_50_PC_P43_S1_01.lua</code> and <code>WDC_pc_PC_P43_S1_data.ttarch2</code> from <code>Archives</code>.</li>
+        <li>To undo: delete the new <code>WDC.exe</code>, rename <code>WDC.exe.bak</code> back to <code>WDC.exe</code>, and delete every <code>_resdesc_50_PC_P43_*.lua</code> and <code>WDC_pc_PC_P43_*.ttarch2</code> file from <code>Archives</code>.</li>
       </ol>
       <p><a class="guide-link" href="#" target="_blank" rel="noopener">Full install guide</a></p>
       <div class="actions"><button type="button" class="btn" data-action="reset">Patch another file</button></div>

@@ -82,19 +82,21 @@
         base.ok = true; base.outputSha256 = rev; base.zipName = 'TWD-4x3-patch.zip';
         base.output = new Blob(['PK mock zip: ', exe], { type: 'application/zip' });
         base.outputs = [
-          { name: 'WDC.exe', blob: exe, sha256: rev, dest: 'game folder' },
-          { name: '_resdesc_50_PC_P43_S1_01.lua', blob: new Blob(['mock descriptor']), sha256: rev.slice(8) + rev.slice(0, 8), dest: 'Archives' },
-          { name: 'WDC_pc_PC_P43_S1_data.ttarch2', blob: new Blob(['mock archive']), sha256: rev.slice(16) + rev.slice(0, 16), dest: 'Archives' }
+          { name: 'WDC.exe', blob: exe, sha256: rev, dest: 'game folder' }
         ];
+        ['S1X', 'S2', 'S3', 'S4', 'SM'].forEach(function (s, i) {
+          base.outputs.push({ name: '_resdesc_50_PC_P43_' + s + '_01.lua', blob: new Blob(['mock descriptor ' + s]), sha256: rev.slice(8 + i) + rev.slice(0, 8 + i), dest: 'Archives' });
+          base.outputs.push({ name: 'WDC_pc_PC_P43_' + s + '_data.ttarch2', blob: new Blob(['mock archive ' + s]), sha256: rev.slice(16 + i) + rev.slice(0, 16 + i), dest: 'Archives' });
+        });
         base.passed = 12;
-        log.push('[mock] SteamStub removed, 3 patches applied, archive built');
+        log.push('[mock] SteamStub removed, exe patched, 5 season sets built');
         log.push('[mock] verify: 12 passed');
       } else if (reason === 'incomplete') {
         base.inputSha256 = '';
         base.missing = ['WDC_pc_ProjectSeason1_data.ttarch2 (the Archives folder)'];
         log.push('[mock] missing: ' + base.missing[0]);
       } else if (reason === 'already_patched') {
-        log.push('[mock] known patched build: p6menu');
+        log.push('[mock] known patched build: p10');
       } else if (reason === 'not_twd') {
         log.push('[mock] no SteamStub header: not the original Steam WDC.exe');
       } else if (reason === 'verify_failed') {

@@ -66,3 +66,4 @@ backup/
 # game data: never commit
 *.ttarch2
 luac.out
+screenshots/

@@ -1,6 +1,6 @@
 // Runs the browser runtime under node on the real game files and checks its three outputs are byte-identical
-// to the command-line tools (tools/patch43.py p6menu, tools/build_tooltipmod.py --release) and to the build
-// verified on device.
+// to the command-line tools (tools/patch43.py p10, tools/build_fix43.py <season> --release) and to the hashes
+// recorded in twd43-data.js.
 // usage: node web/test/parity.mjs [WDC.exe] [WDC_pc_ProjectSeason1_data.ttarch2]
 //   env PYTHON (default: python3; needs pycryptodome), TWD_LUAC (luac from tools/build_luac52.sh; without it the
 //   archive is compared with the verified hashes only)
@@ -37,21 +37,26 @@ for (const o of res.outputs) got[o.name] = Buffer.from(await o.blob.arrayBuffer(
 // reference: the CLI
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'twd-parity-'));
 const py = process.env.PYTHON || 'python3';
-execFileSync(py, ['-I', path.join(repo, 'tools', 'patch43.py'), '--level', 'p6', exePath, path.join(tmp, 'WDC.exe')],
-  { stdio: 'pipe', env: { ...process.env, TWD_ALLOW: 'any', TWD_FOVMIN: '15' } });
+execFileSync(py, ['-I', path.join(repo, 'tools', 'patch43.py'), '--level', 'p10', exePath, path.join(tmp, 'WDC.exe')], { stdio: 'pipe' });
 const ref = { 'WDC.exe': fs.readFileSync(path.join(tmp, 'WDC.exe')) };
 if (process.env.TWD_LUAC) {
   // the CLI builder reads its stock Tooltip.lua from original/archives/WDC_pc_ProjectSeason1_data.ttarch2
-  execFileSync(py, ['-I', path.join(repo, 'tools', 'build_tooltipmod.py'), path.join(tmp, 'mod'), '--release'], { stdio: 'pipe' });
-  for (const n of [T.mod.descName, T.mod.archName]) ref[n] = fs.readFileSync(path.join(tmp, 'mod', n));
+  const flags = JSON.parse(execFileSync(py, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import build_fix43; print(json.dumps(build_fix43.RELEASE))', path.join(repo, 'tools')]).toString());
+  for (const set of T.mod.sets) {
+    const d = path.join(tmp, set.season);
+    execFileSync(py, ['-I', path.join(repo, 'tools', 'build_fix43.py'), set.season, d, '--release', ...flags[set.season]], { stdio: 'pipe' });
+    for (const n of [set.descName, set.archName]) ref[n] = fs.readFileSync(path.join(d, n));
+  }
 }
 fs.rmSync(tmp, { recursive: true, force: true });
 
-const verified = { 'WDC.exe': T.exe.output, [T.mod.descName]: T.mod.outDesc, [T.mod.archName]: T.mod.outArch };
+const verified = { 'WDC.exe': T.exe.output };
+for (const set of T.mod.sets) { verified[set.descName] = set.outDesc; verified[set.archName] = set.outArch; }
+const modNames = T.mod.sets.flatMap((x) => [x.descName, x.archName]);
 for (const o of res.outputs) {
   const h = sha(got[o.name]);
   expect(h === o.sha256, `${o.name}: runtime reported ${o.sha256.slice(0, 16)}…, bytes hash ${h.slice(0, 16)}…`);
-  expect(h === verified[o.name], `${o.name}: matches the device-verified build ${verified[o.name].slice(0, 16)}…`);
+  expect(h === verified[o.name], `${o.name}: matches the recorded build ${verified[o.name].slice(0, 16)}…`);
   if (ref[o.name]) expect(Buffer.compare(got[o.name], ref[o.name]) === 0, `${o.name}: byte-identical to the CLI output (${ref[o.name].length} bytes)`);
 }
 expect(res.inputSha256 === T.exe.pristine, 'input WDC.exe is the pristine Steam build');
@@ -60,7 +65,8 @@ expect(res.inputSha256 === T.exe.pristine, 'input WDC.exe is the pristine Steam 
 {
   const z = Buffer.from(await res.output.arrayBuffer());
   expect(res.zipName === 'TWD-4x3-patch.zip' && sha(z) === res.zipSha256, `zip ${res.zipName}: ${z.length} bytes, sha256 ${sha(z).slice(0, 16)}…`);
-  const want = { 'WDC.exe': 'WDC.exe', [`Archives/${T.mod.descName}`]: T.mod.descName, [`Archives/${T.mod.archName}`]: T.mod.archName };
+  const want = { 'WDC.exe': 'WDC.exe' };
+  for (const n of modNames) want[`Archives/${n}`] = n;
   const seen = [];
   let o = 0;
   while (z.readUInt32LE(o) === 0x04034b50) {
@@ -70,9 +76,9 @@ expect(res.inputSha256 === T.exe.pristine, 'input WDC.exe is the pristine Steam 
       `zip entry ${name}: stored, crc ok, identical to ${want[name]}`);
     seen.push(name); o += 30 + nl + xl + size;
   }
-  expect(seen.length === 3 && Object.keys(want).every((k) => seen.includes(k)), 'zip holds exactly the three files: ' + seen.join(', '));
+  expect(seen.length === 1 + modNames.length && Object.keys(want).every((k) => seen.includes(k)), `zip holds exactly the ${1 + modNames.length} files: ` + seen.join(', '));
   const again = Buffer.from(g.TWD43.makeZip([{ path: 'WDC.exe', bytes: got['WDC.exe'] },
-    { path: `Archives/${T.mod.descName}`, bytes: got[T.mod.descName] }, { path: `Archives/${T.mod.archName}`, bytes: got[T.mod.archName] }]));
+    ...modNames.map((n) => ({ path: `Archives/${n}`, bytes: got[n] }))]));
   expect(Buffer.compare(again, z) === 0, 'zip is deterministic');
 }
 

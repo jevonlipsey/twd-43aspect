@@ -1,12 +1,12 @@
 /* The Walking Dead: The Telltale Definitive Series 4:3 patcher - browser runtime (pure JavaScript, no
  * WebAssembly). Classic script that needs twd43-data.js and pako.min.js first; defines globalThis.TWD43:
  *   TWD43.load(onProgress) -> Promise<void>      idempotent
- *   TWD43.patch(File[]) -> Promise<{ok, reason, output (zip Blob: WDC.exe + Archives/<2 files>), zipName, zipSha256,
- *       outputs [{name, blob, sha256, dest}] (the same three files one by one),
+ *   TWD43.patch(File[]) -> Promise<{ok, reason, output (zip Blob: WDC.exe + Archives/<10 files>), zipName, zipSha256,
+ *       outputs [{name, blob, sha256, dest}] (the same eleven files one by one),
  *       log, passed, failed, skipped, failures, missing, inputSha256, outputSha256, version}>
  * It is the same work as the command-line tools, byte for byte:
- *   WDC.exe: tools/unstub.py (SteamStub 3.1, .bind kept) + tools/patch43.py --level p6 (TWD_ALLOW=any TWD_FOVMIN=15)
- *   Archives: tools/build_tooltipmod.py --release (ttarch2.py: Telltale Blowfish v7, raw deflate level 9)
+ *   WDC.exe: tools/unstub.py (SteamStub 3.1, .bind kept) + tools/patch43.py --level p10
+ *   Archives: tools/build_fix43.py <S1|S2|S3|S4|M> --release (ttarch2.py: Telltale Blowfish v7, raw deflate level 9)
  * The game's own Tooltip.lua is read from the user's WDC_pc_ProjectSeason1_data.ttarch2 and never shipped.
  */
 (function () {
@@ -375,42 +375,50 @@
       if (!check(outSha === D.exe.output, 'patched WDC.exe SHA-256 is ' + outSha + ', expected ' + D.exe.output)) return res('verify_failed', { inputSha256: inSha });
       await yieldUi();
 
-      // ---- the label mod (two new files for Archives/) ----
+      // ---- the per-season 4:3 UI sets (two new files each for Archives/) ----
       var raw = await readFile(archFile), archSha = await sha256(raw), entries;
       log.push(D.mod.sourceArchive + ' SHA-256 ' + archSha);
       try { entries = readArchive(raw); } catch (e) {
         failures.push(archFile.name + ' could not be read as a Telltale archive: ' + (e && e.message || e));
         return res('verify_failed', { inputSha256: inSha });
       }
-      var stock = entries.filter(function (f) { return f.name === D.mod.tooltipName; });
-      if (!check(stock.length === 1, 'Tooltip.lua was not found in ' + archFile.name + ' (is it WDC_pc_ProjectSeason1_data.ttarch2?)')) return res('verify_failed', { inputSha256: inSha });
+      var stock = entries.filter(function (f) { return f.name === D.mod.stockName; });
+      if (!check(stock.length === 1, 'Tooltip.lua was not found in ' + archFile.name + ' (is it ' + D.mod.sourceArchive + '?)')) return res('verify_failed', { inputSha256: inSha });
       var stockSha = await sha256(stock[0].data);
       log.push('stock Tooltip.lua: ' + stock[0].data.length + ' bytes, SHA-256 ' + stockSha);
       if (!check(stockSha === D.mod.stockSha256, 'Tooltip.lua in your archive has SHA-256 ' + stockSha + ', this patcher supports ' + D.mod.stockSha256)) return res('verify_failed', { inputSha256: inSha });
-      var bc = b64(D.mod.tooltipBytecode);
-      var arch = writeArchive([
-        { name: D.mod.tooltipName, data: encryptLua(bc, 'LEn') },
-        { name: D.mod.stockName, data: stock[0].data }
-      ], D.mod.chunk);
-      var desc = encryptLua(ascii(D.mod.descriptor), 'LEo');
-      // read the new archive back: it must hold our Tooltip.lua and the stock one unchanged
-      var back = readArchive(arch), got = {};
-      back.forEach(function (f) { got[f.name] = f.data; });
-      check(got[D.mod.stockName] && eq(got[D.mod.stockName], stock[0].data), 'archive read-back: ' + D.mod.stockName);
-      check(got[D.mod.tooltipName] && eq(bfCrypt(got[D.mod.tooltipName].subarray(4), true), bc.subarray(4)), 'archive read-back: ' + D.mod.tooltipName);
-      var archOutSha = await sha256(arch), descSha = await sha256(desc);
-      log.push(D.mod.archName + ' ' + arch.length + ' bytes, SHA-256 ' + archOutSha);
-      log.push(D.mod.descName + ' ' + desc.length + ' bytes, SHA-256 ' + descSha);
-      check(archOutSha === D.mod.outArch, D.mod.archName + ' SHA-256 is ' + archOutSha + ', expected ' + D.mod.outArch);
-      check(descSha === D.mod.outDesc, D.mod.descName + ' SHA-256 is ' + descSha + ', expected ' + D.mod.outDesc);
+      var newFiles = [];
+      for (var si = 0; si < D.mod.sets.length; si++) {
+        var set = D.mod.sets[si], want = {};
+        var arch = writeArchive(set.files.map(function (f) {
+          var data = f.stock ? stock[0].data : encryptLua(b64(f.bytecode), 'LEn');
+          want[f.name] = f;
+          return { name: f.name, data: data };
+        }), D.mod.chunk);
+        var desc = encryptLua(ascii(set.descriptor), 'LEo');
+        // read the new archive back: every file present, ours decrypt to our bytecode, the stock one unchanged
+        var back = readArchive(arch), got = {};
+        back.forEach(function (f) { got[f.name] = f.data; });
+        check(back.length === set.files.length, set.archName + ' read-back: ' + back.length + ' files');
+        set.files.forEach(function (f) {
+          var g = got[f.name];
+          if (f.stock) check(g && eq(g, stock[0].data), set.archName + ' read-back: ' + f.name);
+          else { var bc = b64(f.bytecode); check(g && eq(bfCrypt(g.subarray(4), true), bc.subarray(4)), set.archName + ' read-back: ' + f.name); }
+        });
+        var archOutSha = await sha256(arch), descSha = await sha256(desc);
+        log.push(set.season + ': ' + set.archName + ' ' + arch.length + ' bytes, SHA-256 ' + archOutSha);
+        log.push(set.season + ': ' + set.descName + ' ' + desc.length + ' bytes, SHA-256 ' + descSha);
+        check(archOutSha === set.outArch, set.archName + ' SHA-256 is ' + archOutSha + ', expected ' + set.outArch);
+        check(descSha === set.outDesc, set.descName + ' SHA-256 is ' + descSha + ', expected ' + set.outDesc);
+        newFiles.push({ name: set.descName, bytes: desc, sha256: descSha }, { name: set.archName, bytes: arch, sha256: archOutSha });
+        await yieldUi();
+      }
       if (failures.length) return res('verify_failed', { inputSha256: inSha });
 
-      // one zip laid out like the game folder: WDC.exe at the top, the two new files under Archives/
-      var zip = makeZip([
-        { path: 'WDC.exe', bytes: out },
-        { path: 'Archives/' + D.mod.descName, bytes: desc },
-        { path: 'Archives/' + D.mod.archName, bytes: arch }
-      ]);
+      // one zip laid out like the game folder: WDC.exe at the top, the new files under Archives/
+      var zip = makeZip([{ path: 'WDC.exe', bytes: out }].concat(newFiles.map(function (f) {
+        return { path: 'Archives/' + f.name, bytes: f.bytes };
+      })));
       var zipSha = await sha256(zip);
       log.push(ZIP_NAME + ' ' + zip.length + ' bytes, SHA-256 ' + zipSha);
       var exeBlob = new Blob([out], { type: 'application/octet-stream' });
@@ -419,11 +427,9 @@
         ok: true, reason: 'ok', output: new Blob([zip], { type: 'application/zip' }), zipName: ZIP_NAME, zipSha256: zipSha,
         log: log.join('\n'), passed: passed, failed: 0, skipped: 0, failures: [], missing: [],
         inputSha256: inSha, outputSha256: outSha, version: VERSION,
-        outputs: [
-          { name: 'WDC.exe', blob: exeBlob, sha256: outSha, dest: 'game folder' },
-          { name: D.mod.descName, blob: new Blob([desc], { type: 'application/octet-stream' }), sha256: descSha, dest: 'Archives' },
-          { name: D.mod.archName, blob: new Blob([arch], { type: 'application/octet-stream' }), sha256: archOutSha, dest: 'Archives' }
-        ]
+        outputs: [{ name: 'WDC.exe', blob: exeBlob, sha256: outSha, dest: 'game folder' }].concat(newFiles.map(function (f) {
+          return { name: f.name, blob: new Blob([f.bytes], { type: 'application/octet-stream' }), sha256: f.sha256, dest: 'Archives' };
+        }))
       };
     }
   };

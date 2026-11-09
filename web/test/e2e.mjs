@@ -19,7 +19,8 @@ const oneByOne = argv.includes('--one-by-one');
 for (const f of [exe, arch]) if (!fs.existsSync(f)) { console.error('FAIL: input missing ' + f); process.exit(1); }
 vm.runInThisContext(fs.readFileSync(path.join(root, 'web/app/twd43-data.js'), 'utf8'));
 const T = globalThis.TWD43_DATA;
-const expected = { 'WDC.exe': T.exe.output, [T.mod.descName]: T.mod.outDesc, [T.mod.archName]: T.mod.outArch };
+const expected = { 'WDC.exe': T.exe.output };
+for (const s of T.mod.sets) { expected[s.descName] = s.outDesc; expected[s.archName] = s.outArch; }
 
 const srv = await serve(dist);
 const chrome = await launchChrome();
@@ -57,22 +58,24 @@ try {
   ok(state === 'ok', 'success view is shown');
   const info = JSON.parse(await chrome.evaluate(`(async () => {
     const out = [];
-    for (const id of ['download-exe', 'download-desc', 'download-arch', 'download']) {
-      const a = document.getElementById(id); const r = await fetch(a.href); const b = new Uint8Array(await r.arrayBuffer());
+    document.querySelector('details.more-hashes').open = true;
+    for (const a of [...document.querySelectorAll('#download-files a'), document.getElementById('download')]) {
+      const id = a.id || a.textContent; const r = await fetch(a.href); const b = new Uint8Array(await r.arrayBuffer());
       const hex = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', b)), (x) => x.toString(16).padStart(2, '0')).join('');
       out.push({ id, visible: a.offsetParent !== null, href: a.href.slice(0, 5), name: a.getAttribute('download'), size: b.length, sha: hex });
     }
-    const shown = ['ok-out-hash', 'ok-desc-hash', 'ok-arch-hash'].map((i) => document.getElementById(i).textContent.trim());
+    const shown = [document.getElementById('ok-out-hash'), ...document.querySelectorAll('#ok-more-hashes dd')].map((e) => e.textContent.trim());
     return JSON.stringify({ out, shown, verified: document.getElementById('ok-verified').textContent.trim() });
   })()`));
   console.log('  ' + info.verified);
   const zip = info.out.pop();
   ok(zip.visible && zip.href === 'blob:' && zip.name === 'TWD-4x3-patch.zip' && zip.size > info.out.reduce((n, o) => n + o.size, 0),
     `download (primary) saves as ${zip.name} (${zip.size} bytes)`);
+  ok(info.out.length === Object.keys(expected).length, `${info.out.length} files offered one by one`);
   info.out.forEach((o, i) => {
     ok(o.visible && o.href === 'blob:', `${o.id} visible with a blob: url, saves as ${o.name} (${o.size} bytes)`);
     ok(o.sha === info.shown[i], `${o.name}: blob sha256 equals the hash shown in the UI`);
-    ok(o.sha === expected[o.name], `${o.name}: blob sha256 equals the device-verified build ${expected[o.name].slice(0, 16)}…`);
+    ok(o.sha === expected[o.name], `${o.name}: blob sha256 equals the published build ${expected[o.name].slice(0, 16)}…`);
   });
   const png = await chrome.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
   fs.writeFileSync(shot, Buffer.from(png.data, 'base64'));

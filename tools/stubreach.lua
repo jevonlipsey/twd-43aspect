@@ -20,7 +20,11 @@ function Platform_HasTouch() return false end
 function Platform_HasController() return true end
 function ReticleUI_Touch() touched = touched + 1 end
 function RenderGetScreenResolution() return {x = W, y = H} end
-function AgentExists() return false end
+local ag = {}   -- glue test agents: name -> {w = world pos, o = Text Offset}
+function AgentExists(n) return ag[n] ~= nil end
+function AgentGetWorldPos(n) local a = ag[n]; return {x = a.w.x, y = a.w.y, z = 0} end
+function AgentGetProperty(n, k) if k == "Text Offset" and ag[n] then local o = ag[n].o; return {x = o.x, y = o.y, z = 0} end end
+function AgentSetProperty(n, k, v) if k == "Text Offset" and ag[n] then ag[n].o = {x = v.x, y = v.y} end end
 function AgentFind(n) if n == "logic_reticle" then return {mProps = logicProps} end end
 function SceneIsActive(s) return scenes[s] == true end
 function SubProject_IsEpisode() return episode end
@@ -92,5 +96,21 @@ W, H = 1280, 960; step(2)
 episode = false; step(2)
 print("menu subproject -> stock")
 checkU("hard left/top", -5, -5, gH, gV)
+-- Glue rows (S2-M choices, M hover label): Text Offset = authored + (0.75 - 1) * world pos, follows, never fights
+if TWD43_GLUE then
+  W, H = 1280, 960; episode = true; step(2)
+  for _, r in ipairs(TWD43_GLUE) do ag[r[1]] = {w = {x = 8, y = -3}, o = {x = r[2], y = r[3]}} end
+  step(1)
+  local function glued(r, wx, wy) local o = ag[r[1]].o; return math.abs(o.x - (r[2] - 0.25 * wx)) < 1e-6 and math.abs(o.y - (r[3] - 0.25 * wy)) < 1e-6 end
+  local okg = true
+  for _, r in ipairs(TWD43_GLUE) do okg = okg and glued(r, 8, -3) end
+  for _, r in ipairs(TWD43_GLUE) do ag[r[1]].w = {x = -9, y = 4} end
+  step(1)
+  for _, r in ipairs(TWD43_GLUE) do okg = okg and glued(r, -9, 4) end
+  local r1 = TWD43_GLUE[1]; ag[r1[1]].o = {x = 5, y = 5}; step(1)   -- someone else's value: left alone
+  okg = okg and ag[r1[1]].o.x == 5
+  print("glue rows " .. #TWD43_GLUE .. ": " .. (okg and "ok" or "FAIL"))
+  if not okg then fails = fails + 1 end
+end
 print(fails == 0 and (season .. " REACH OK") or (season .. " REACH FAILED " .. fails))
 os.exit(fails == 0 and 0 or 1)

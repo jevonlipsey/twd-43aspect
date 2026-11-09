@@ -198,3 +198,6 @@ h2:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-
   h1 { font-size: 1.5rem; }
   .card { padding: 1rem; }
 }
+.more-hashes { margin: 0 0 1rem; }
+.more-hashes summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+#download-files a { overflow-wrap: anywhere; }
