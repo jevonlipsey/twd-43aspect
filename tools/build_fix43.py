@@ -78,7 +78,9 @@ EMPTY_BRIGHTNESS = {
 }
 
 # The shipped build: build flags per season for `--release` (tools/gen_web_data.py and tools/release43.sh use this).
-RELEASE = {'S1': [], 'S2': [], 'S3': [], 'S4': ['--noglue'], 'M': ['--noglue']}
+# 2026-11-10: S4 and M now ship their choice Glue/Nudge rows, and M its hover-label rows. Both are Mac-verified only
+# (stubglue); they were never seen on a device because the user has not played those games yet (no spoilers).
+RELEASE = {'S1': [], 'S2': [], 'S3': [], 'S4': [], 'M': ['--labelglue']}
 
 LONG_TAIL = ' wrap test: this option is deliberately long so that it has to break onto a second line'
 

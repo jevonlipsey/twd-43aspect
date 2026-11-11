@@ -35,10 +35,11 @@ The patcher accepts only the current Steam build (`WDC.exe` sha256 `5f44e53f…`
 
 ## What it changes
 - **Camera (`WDC.exe`):** `tools/patch43.py --level p10` removes the forced 16:9 letterbox. Cameras keep the 16:9 horizontal view and gain extra view above and below (vert+), including dialogue close-ups during gameplay.
-- **UI (Lua, no exe change, one small resource set per game):** edge elements that were authored for 16:9 are moved inward to the real 4:3 edges at their normal size: the interaction label, "will remember this" notifications, help text, peek arrows, back buttons, end-of-episode stats. Long dialogue choices wrap instead of clipping, and the controller choice prompts sit beside their icons (Season One, Two and A New Frontier).
+- **UI (Lua, no exe change, one small resource set per game):** edge elements that were authored for 16:9 are moved inward to the real 4:3 edges at their normal size: the interaction label, "will remember this" notifications, help text, peek arrows, back buttons, end-of-episode stats. Long dialogue choices wrap instead of clipping, and the controller choice prompts sit beside their icons in all five games.
 - **Reticle:** it can reach the whole 4:3 picture. Before, it stopped at the middle 75% of the width and inside the old 16:9 height, so things near the edges could not be selected.
 - Each set is two new files in `Archives/` (`_resdesc_50_PC_P43_<game>_01.lua` + `WDC_pc_PC_P43_<game>_data.ttarch2`), priority 700/710, in the same style as the official patches. No game file is overwritten, and nothing changes on a 16:9 screen.
-- Known gaps: choice prompts in The Final Season and Michonne still use the stock positions; a hover label on something at the very edge can clip in Michonne.
+- **Optional: hold RB / R1 to skip a cutscene** (`tools/build_skip43.py`, one more small set per game, not in the web patcher yet). Hold RB for one second during a cutscene to jump to its end; Q on a keyboard also works. Choices, quick-time events and action scenes are never skipped. Adapted from [TWDG-Skip](https://www.nexusmods.com/thewalkingdeadthetelltaledefinitiveseries/mods/333), with credit to its author.
+- Checked on a device: Season One, Season Two and A New Frontier. The choice prompts in The Final Season and Michonne, and Michonne's hover label, use the same fix but have only been checked against the game's layout data, not seen in play yet. In The Final Season the label text of an interaction icon near the screen edge may sit further out than its icon.
 
 ## Build
 ```
