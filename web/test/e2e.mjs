@@ -1,6 +1,7 @@
 // end-to-end: drives the real UI (web/dist/index.html, not ?mock) in headless Chrome with the real game files.
 //   node web/test/e2e.mjs [--dist web/dist] [--exe original/WDC.exe] [--arch original/archives/WDC_pc_ProjectSeason1_data.ttarch2]
-//                         [--shot out.png] [--one-by-one]
+//                         [--shot out.png] [--one-by-one] [--skip]
+// --skip ticks "Also add hold RB to skip cutscenes" first and checks the 10 extra files, the zip contents and the OK text.
 // --one-by-one picks WDC.exe first, checks the "one more file is needed" view, then adds the archive.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,11 +17,14 @@ const exe = path.resolve(opt('--exe', path.join(root, 'original/WDC.exe')));
 const arch = path.resolve(opt('--arch', path.join(root, 'original/archives/WDC_pc_ProjectSeason1_data.ttarch2')));
 const shot = opt('--shot', path.join(process.env.TMPDIR || '/tmp', 'twd43-e2e.png'));
 const oneByOne = argv.includes('--one-by-one');
+const withSkip = argv.includes('--skip');
 for (const f of [exe, arch]) if (!fs.existsSync(f)) { console.error('FAIL: input missing ' + f); process.exit(1); }
 vm.runInThisContext(fs.readFileSync(path.join(root, 'web/app/twd43-data.js'), 'utf8'));
 const T = globalThis.TWD43_DATA;
 const expected = { 'WDC.exe': T.exe.output };
 for (const s of T.mod.sets) { expected[s.descName] = s.outDesc; expected[s.archName] = s.outArch; }
+
+if (withSkip) for (const s of T.mod.skipSets) { expected[s.descName] = s.outDesc; expected[s.archName] = s.outArch; }
 
 const srv = await serve(dist);
 const chrome = await launchChrome();
@@ -39,6 +43,14 @@ try {
     if (e && e.classList.contains('failed')) return rej(new Error('runtime failed: ' + document.getElementById('runtime-fail-text').textContent));
     if (Date.now() - t0 > 60000) return rej(new Error('runtime load timeout')); setTimeout(w, 100); })(); })`);
   console.log(`runtime ready after ${Date.now() - t0} ms`);
+
+  const box = JSON.parse(await chrome.evaluate(`(() => { const b = document.getElementById('opt-skip'); const r = b.getBoundingClientRect();
+    return JSON.stringify({ checked: b.checked, visible: b.offsetParent !== null && r.width > 0, label: b.closest('label').textContent.replace(/\\s+/g, ' ').trim() }); })()`));
+  ok(box.visible && box.checked === false && /hold RB to skip cutscenes/.test(box.label), 'skip tick box is shown and off by default');
+  if (withSkip) {
+    await chrome.evaluate(`document.getElementById('opt-skip').click()`);
+    ok(await chrome.evaluate(`document.getElementById('opt-skip').checked`), 'skip tick box ticked');
+  }
 
   const doc = await chrome.send('DOM.getDocument');
   const { nodeId } = await chrome.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#file' });
@@ -69,6 +81,17 @@ try {
   })()`));
   console.log('  ' + info.verified);
   const zip = info.out.pop();
+  const zipNames = JSON.parse(await chrome.evaluate(`(async () => {
+    const z = new Uint8Array(await (await fetch(document.getElementById('download').href)).arrayBuffer()), v = new DataView(z.buffer), names = [];
+    let o = 0;
+    while (v.getUint32(o, true) === 0x04034b50) { const size = v.getUint32(o + 18, true), nl = v.getUint16(o + 26, true), xl = v.getUint16(o + 28, true);
+      names.push(new TextDecoder().decode(z.subarray(o + 30, o + 30 + nl))); o += 30 + nl + xl + size; }
+    return JSON.stringify(names); })()`));
+  const wantZip = ['WDC.exe', ...Object.keys(expected).filter((n) => n !== 'WDC.exe').map((n) => 'Archives/' + n)];
+  ok(zipNames.length === wantZip.length && wantZip.every((n) => zipNames.includes(n)), `zip holds ${zipNames.length} files (${withSkip ? 'with' : 'without'} the SKIP sets): ` + (withSkip ? 'has' : 'has no') + ' PC_P43_SKIP_* entries');
+  ok(zipNames.some((n) => n.includes('PC_P43_SKIP_')) === withSkip, 'SKIP entries present only when ticked');
+  const okText = await chrome.evaluate(`document.getElementById('view-ok').innerText`);
+  ok(/twenty new files/.test(okText) === withSkip && /hold\s+RB/i.test(okText) === withSkip, 'OK view mentions the skip files only when ticked');
   ok(zip.visible && zip.href === 'blob:' && zip.name === 'TWD-4x3-patch.zip' && zip.size > info.out.reduce((n, o) => n + o.size, 0),
     `download (primary) saves as ${zip.name} (${zip.size} bytes)`);
   ok(info.out.length === Object.keys(expected).length, `${info.out.length} files offered one by one`);

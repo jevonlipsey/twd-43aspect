@@ -1,6 +1,7 @@
 // Runs the browser runtime under node on the real game files and checks its three outputs are byte-identical
 // to the command-line tools (tools/patch43.py p10, tools/build_fix43.py <season> --release) and to the hashes
-// recorded in twd43-data.js.
+// recorded in twd43-data.js. Then runs it again with {skip: true} and checks the ten extra hold-RB skip files
+// against tools/build_skip43.py the same way (and that the first eleven are unchanged).
 // usage: node web/test/parity.mjs [WDC.exe] [WDC_pc_ProjectSeason1_data.ttarch2]
 //   env PYTHON (default: python3; needs pycryptodome), TWD_LUAC (luac from tools/build_luac52.sh; without it the
 //   archive is compared with the verified hashes only)
@@ -48,6 +49,13 @@ if (process.env.TWD_LUAC) {
     for (const n of [set.descName, set.archName]) ref[n] = fs.readFileSync(path.join(d, n));
   }
 }
+const skipRef = {};
+if (process.env.TWD_LUAC) {
+  for (const set of T.mod.skipSets) {
+    execFileSync(py, ['-I', path.join(repo, 'tools', 'build_skip43.py'), set.season, path.join(tmp, 'skip')], { stdio: 'pipe' });
+    for (const n of [set.descName, set.archName]) skipRef[n] = fs.readFileSync(path.join(tmp, 'skip_' + set.season, n));
+  }
+}
 fs.rmSync(tmp, { recursive: true, force: true });
 
 const verified = { 'WDC.exe': T.exe.output };
@@ -80,6 +88,39 @@ expect(res.inputSha256 === T.exe.pristine, 'input WDC.exe is the pristine Steam 
   const again = Buffer.from(g.TWD43.makeZip([{ path: 'WDC.exe', bytes: got['WDC.exe'] },
     ...modNames.map((n) => ({ path: `Archives/${n}`, bytes: got[n] }))]));
   expect(Buffer.compare(again, z) === 0, 'zip is deterministic');
+}
+
+// option on: the same eleven files plus ten skip files, each equal to the CLI output
+{
+  const skipNames = T.mod.skipSets.flatMap((x) => [x.descName, x.archName]);
+  expect(res.skip !== true && res.outputs.length === 11, 'option off: 11 outputs, no skip files');
+  const rs = await g.TWD43.patch([file(exePath, 'WDC.exe'), file(archPath)], { skip: true });
+  if (!rs.ok) { console.error(rs.reason, rs.log, rs.failures); process.exit(1); }
+  expect(rs.skip === true && rs.outputs.length === 21, 'option on: 21 outputs');
+  const gs = {};
+  for (const o of rs.outputs) gs[o.name] = Buffer.from(await o.blob.arrayBuffer());
+  for (const n of Object.keys(got)) expect(Buffer.compare(gs[n], got[n]) === 0, `option on: ${n} is unchanged`);
+  const verifiedSkip = {};
+  for (const set of T.mod.skipSets) { verifiedSkip[set.descName] = set.outDesc; verifiedSkip[set.archName] = set.outArch; }
+  for (const n of skipNames) {
+    expect(!!gs[n] && sha(gs[n]) === verifiedSkip[n], `${n}: matches the recorded build ${verifiedSkip[n].slice(0, 16)}…`);
+    if (skipRef[n]) expect(Buffer.compare(gs[n], skipRef[n]) === 0, `${n}: byte-identical to the CLI output (${skipRef[n].length} bytes)`);
+  }
+  if (!process.env.TWD_LUAC) console.log('note: TWD_LUAC not set, skip files compared with the recorded hashes only');
+  const z = Buffer.from(await rs.output.arrayBuffer());
+  const want = { 'WDC.exe': 'WDC.exe' };
+  for (const n of [...modNames, ...skipNames]) want[`Archives/${n}`] = n;
+  const seen = [];
+  let o = 0;
+  while (z.readUInt32LE(o) === 0x04034b50) {
+    const size = z.readUInt32LE(o + 18), nl = z.readUInt16LE(o + 26), xl = z.readUInt16LE(o + 28);
+    const name = z.subarray(o + 30, o + 30 + nl).toString(), body = z.subarray(o + 30 + nl + xl, o + 30 + nl + xl + size);
+    expect(want[name] && Buffer.compare(body, gs[want[name]]) === 0, `skip zip entry ${name}: identical to ${want[name]}`);
+    seen.push(name); o += 30 + nl + xl + size;
+  }
+  expect(seen.length === 21 && Object.keys(want).every((k) => seen.includes(k)), 'skip zip holds exactly the 21 files');
+  expect(/^[0-9a-f]{64}$/.test(T.mod.stockDlgSha256) && T.mod.stockDlgSha256.startsWith('65f453745b23f6cb'), 'stock dialog manager hash is pinned');
+  expect(!JSON.stringify(T.mod.skipSets).includes(T.mod.stockDlgSha256), 'no game file embedded in the data');
 }
 
 // negatives

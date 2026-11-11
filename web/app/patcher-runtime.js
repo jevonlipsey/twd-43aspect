@@ -1,8 +1,10 @@
 /* The Walking Dead: The Telltale Definitive Series 4:3 patcher - browser runtime (pure JavaScript, no
  * WebAssembly). Classic script that needs twd43-data.js and pako.min.js first; defines globalThis.TWD43:
  *   TWD43.load(onProgress) -> Promise<void>      idempotent
- *   TWD43.patch(File[]) -> Promise<{ok, reason, output (zip Blob: WDC.exe + Archives/<10 files>), zipName, zipSha256,
- *       outputs [{name, blob, sha256, dest}] (the same eleven files one by one),
+ *   TWD43.patch(File[], {skip: bool}) -> Promise<{ok, reason, output (zip Blob: WDC.exe + Archives/<10 files>, +10 with skip), zipName, zipSha256,
+ *       outputs [{name, blob, sha256, dest}] (the same eleven files one by one; 21 with opts.skip, the optional
+ *       hold-RB skip sets from tools/build_skip43.py, whose S1 hook also takes the stock module_dialog_manager.lua from the archive),
+ *       skip (bool, whether the skip sets are included),
  *       log, passed, failed, skipped, failures, missing, inputSha256, outputSha256, version}>
  * It is the same work as the command-line tools, byte for byte:
  *   WDC.exe: tools/unstub.py (SteamStub 3.1, .bind kept) + tools/patch43.py --level p10
@@ -317,7 +319,7 @@
       return Promise.resolve();
     },
 
-    patch: async function (fileList) {
+    patch: async function (fileList, opts) {
       var log = [], passed = 0, failures = [];
       function res(reason, extra) {
         var r = { ok: false, reason: reason, output: null, outputs: [], log: log.join('\n'), passed: passed, failed: failures.length,
@@ -387,11 +389,24 @@
       var stockSha = await sha256(stock[0].data);
       log.push('stock Tooltip.lua: ' + stock[0].data.length + ' bytes, SHA-256 ' + stockSha);
       if (!check(stockSha === D.mod.stockSha256, 'Tooltip.lua in your archive has SHA-256 ' + stockSha + ', this patcher supports ' + D.mod.stockSha256)) return res('verify_failed', { inputSha256: inSha });
+      var stocks = { 'Tooltip.lua': stock[0].data };
+      var skipOn = !!(opts && opts.skip);
+      if (skipOn) {
+        // the optional skip sets' S1 hook needs the stock dialog manager from the same archive
+        var dlg = entries.filter(function (f) { return f.name === D.mod.stockDlgName; });
+        if (!check(dlg.length === 1, D.mod.stockDlgName + ' was not found in ' + archFile.name + ' (is it ' + D.mod.sourceArchive + '?)')) return res('verify_failed', { inputSha256: inSha });
+        var dlgSha = await sha256(dlg[0].data);
+        log.push('stock ' + D.mod.stockDlgName + ': ' + dlg[0].data.length + ' bytes, SHA-256 ' + dlgSha);
+        if (!check(dlgSha === D.mod.stockDlgSha256, D.mod.stockDlgName + ' in your archive has SHA-256 ' + dlgSha + ', this patcher supports ' + D.mod.stockDlgSha256)) return res('verify_failed', { inputSha256: inSha });
+        stocks[D.mod.stockDlgName] = dlg[0].data;
+      }
       var newFiles = [];
-      for (var si = 0; si < D.mod.sets.length; si++) {
-        var set = D.mod.sets[si], want = {};
+      var allSets = D.mod.sets.map(function (x) { return { set: x, tag: x.season }; });
+      if (skipOn) D.mod.skipSets.forEach(function (x) { allSets.push({ set: x, tag: x.season + ' skip' }); });
+      for (var si = 0; si < allSets.length; si++) {
+        var set = allSets[si].set, tag = allSets[si].tag, want = {};
         var arch = writeArchive(set.files.map(function (f) {
-          var data = f.stock ? stock[0].data : encryptLua(b64(f.bytecode), 'LEn');
+          var data = f.stock ? stocks[f.stock] : encryptLua(b64(f.bytecode), 'LEn');
           want[f.name] = f;
           return { name: f.name, data: data };
         }), D.mod.chunk);
@@ -402,12 +417,12 @@
         check(back.length === set.files.length, set.archName + ' read-back: ' + back.length + ' files');
         set.files.forEach(function (f) {
           var g = got[f.name];
-          if (f.stock) check(g && eq(g, stock[0].data), set.archName + ' read-back: ' + f.name);
+          if (f.stock) check(g && eq(g, stocks[f.stock]), set.archName + ' read-back: ' + f.name);
           else { var bc = b64(f.bytecode); check(g && eq(bfCrypt(g.subarray(4), true), bc.subarray(4)), set.archName + ' read-back: ' + f.name); }
         });
         var archOutSha = await sha256(arch), descSha = await sha256(desc);
-        log.push(set.season + ': ' + set.archName + ' ' + arch.length + ' bytes, SHA-256 ' + archOutSha);
-        log.push(set.season + ': ' + set.descName + ' ' + desc.length + ' bytes, SHA-256 ' + descSha);
+        log.push(tag + ': ' + set.archName + ' ' + arch.length + ' bytes, SHA-256 ' + archOutSha);
+        log.push(tag + ': ' + set.descName + ' ' + desc.length + ' bytes, SHA-256 ' + descSha);
         check(archOutSha === set.outArch, set.archName + ' SHA-256 is ' + archOutSha + ', expected ' + set.outArch);
         check(descSha === set.outDesc, set.descName + ' SHA-256 is ' + descSha + ', expected ' + set.outDesc);
         newFiles.push({ name: set.descName, bytes: desc, sha256: descSha }, { name: set.archName, bytes: arch, sha256: archOutSha });
@@ -424,7 +439,7 @@
       var exeBlob = new Blob([out], { type: 'application/octet-stream' });
       log.push('All ' + passed + ' checks passed');
       return {
-        ok: true, reason: 'ok', output: new Blob([zip], { type: 'application/zip' }), zipName: ZIP_NAME, zipSha256: zipSha,
+        ok: true, reason: 'ok', output: new Blob([zip], { type: 'application/zip' }), zipName: ZIP_NAME, zipSha256: zipSha, skip: skipOn,
         log: log.join('\n'), passed: passed, failed: 0, skipped: 0, failures: [], missing: [],
         inputSha256: inSha, outputSha256: outSha, version: VERSION,
         outputs: [{ name: 'WDC.exe', blob: exeBlob, sha256: outSha, dest: 'game folder' }].concat(newFiles.map(function (f) {

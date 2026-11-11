@@ -64,7 +64,7 @@
       return loadP;
     },
 
-    patch: async function (files) {
+    patch: async function (files, opts) {
       files = Array.prototype.slice.call(files || []);
       var first = files[0] || new Blob([]);
       var bytes = new Uint8Array(await first.slice(0, 4096).arrayBuffer());
@@ -88,6 +88,13 @@
           base.outputs.push({ name: '_resdesc_50_PC_P43_' + s + '_01.lua', blob: new Blob(['mock descriptor ' + s]), sha256: rev.slice(8 + i) + rev.slice(0, 8 + i), dest: 'Archives' });
           base.outputs.push({ name: 'WDC_pc_PC_P43_' + s + '_data.ttarch2', blob: new Blob(['mock archive ' + s]), sha256: rev.slice(16 + i) + rev.slice(0, 16 + i), dest: 'Archives' });
         });
+        if (opts && opts.skip) {
+          base.skip = true;
+          ['S1', 'S2', 'S3', 'S4', 'SM'].forEach(function (s, i) {
+            base.outputs.push({ name: '_resdesc_50_PC_P43_SKIP_' + s + '_01.lua', blob: new Blob(['mock skip descriptor ' + s]), sha256: rev.slice(24 + i) + rev.slice(0, 24 + i), dest: 'Archives' });
+            base.outputs.push({ name: 'WDC_pc_PC_P43_SKIP_' + s + '_data.ttarch2', blob: new Blob(['mock skip archive ' + s]), sha256: rev.slice(32 + i) + rev.slice(0, 32 + i), dest: 'Archives' });
+          });
+        }
         base.passed = 12;
         log.push('[mock] SteamStub removed, exe patched, 5 season sets built');
         log.push('[mock] verify: 12 passed');

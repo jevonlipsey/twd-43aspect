@@ -2,7 +2,7 @@
  *
  * Talks to the patcher through globalThis.TWD43 (provided by patcher-runtime.js):
  *   TWD43.load(onProgress) -> Promise<void>
- *   TWD43.patch(File[]) -> Promise<{ok, reason, output, outputs, log, passed, failed, skipped,
+ *   TWD43.patch(File[], {skip}) -> Promise<{ok, reason, output, outputs, log, passed, failed, skipped,
  *                                   failures, missing, inputSha256, outputSha256, version}>
  * The user hands over WDC.exe and WDC_pc_ProjectSeason1_data.ttarch2, together or one pick at a time;
  * the result is a zip laid out like the game folder (the patched WDC.exe and the new files for Archives/),
@@ -22,7 +22,7 @@
     status: $('status'), version: $('version'),
     runtime: $('runtime'), runtimeText: $('runtime-text'), runtimeBar: $('runtime-bar'),
     runtimeFail: $('runtime-fail'), runtimeFailText: $('runtime-fail-text'),
-    pick: $('view-pick'), drop: $('drop'), file: $('file'),
+    pick: $('view-pick'), optSkip: $('opt-skip'), drop: $('drop'), file: $('file'),
     busy: $('view-busy'), busyTitle: $('busy-title'), busyFile: $('busy-file'),
     busyNote: $('busy-note'), busyElapsed: $('busy-elapsed'),
     ok: $('view-ok'), okTitle: $('ok-title'), okVerified: $('ok-verified'),
@@ -241,7 +241,7 @@
       announce('Patching started. This can take a while.');
       // Give the browser a frame to paint the busy state before heavy work starts.
       return new Promise(function (r) { setTimeout(r, 50); }).then(function () {
-        return globalThis.TWD43.patch(files);
+        return globalThis.TWD43.patch(files, { skip: !!el.optSkip.checked });
       }).then(function (res) {
         if (my !== runId) return null;
         stopElapsed();
@@ -299,6 +299,10 @@
       hash.textContent = o.sha256 || 'unavailable';
     });
     el.downloadSize.textContent = fmtBytes(res.output.size);
+
+    var withSkip = res.skip === true;
+    Array.prototype.forEach.call(document.querySelectorAll('.n-new'), function (n) { n.textContent = withSkip ? 'twenty' : 'ten'; });
+    Array.prototype.forEach.call(document.querySelectorAll('.skip-only'), function (n) { n.hidden = !withSkip; });
 
     var passed = res.passed | 0;
     el.okVerified.textContent = 'Verified: ' + passed + ' check' + (passed === 1 ? '' : 's') + ' passed. All ' + res.outputs.length + ' files match the published build.';

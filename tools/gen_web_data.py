@@ -11,6 +11,9 @@ What goes in, and why it is safe to publish:
     bytecode of mod/TWD43/* and mod/ProjectSeason1/Tooltip.lua). The only game file in any set is S1's stock
     Tooltip.lua (renamed TWD43_Tooltip_stock.lua): the page takes it from the user's own
     WDC_pc_ProjectSeason1_data.ttarch2 and checks its hash. S2/S3/S4/M replace an empty stock chunk outright;
+  - the five optional hold-RB skip sets of `build_skip43.py <season>` (mod.skipSets, same shape): our hook + TWD43_skip.lua
+    compiled; S1's set also holds the stock module_dialog_manager.lua (renamed TWD43_skip_dlgmgr_stock.lua), taken
+    by the page from the same archive and hash-checked (mod.stockDlgName / stockDlgSha256). The rest hold only our Lua;
   - the archive key and the Blowfish tables (public: TTG Tools, the digits of pi);
   - the hashes the page checks its inputs and outputs against.
 """
@@ -22,11 +25,13 @@ sys.path.insert(0, HERE)
 import patch43  # noqa: E402
 import ttarch2  # noqa: E402
 import build_fix43  # noqa: E402
+import build_skip43  # noqa: E402
 from _bf_tables import P, S  # noqa: E402
 
 LEVEL = 'p10'
 OUT_EXE = '85fb1aa64867d41aa17203ed5a853b16bc817376e707a0c2cbaf543d6471824a'   # p10, verified on device
 STOCK_TOOLTIP = 'dd4489890f066ee30d523fc0f929a61087daf12f058965234bab198b840f93f3'   # Tooltip.lua in the Steam build
+STOCK_DLG = 'module_dialog_manager.lua'   # S1 skip set: stock file shipped renamed TWD43_skip_dlgmgr_stock.lua
 SOURCE_ARCHIVE = 'WDC_pc_ProjectSeason1_data.ttarch2'
 # Earlier outputs of tools/patch43.py / this patcher: recognised as "already patched".
 PATCHED = {
@@ -38,38 +43,62 @@ PATCHED = {
 }
 
 
+def set_data(season, descName, archName, desc, raw_desc, raw_arch, stocks):
+    """One set as page data. stocks maps a renamed game file's name in the set -> (stock file name, expected sha256)."""
+    assert ttarch2.decrypt_lua(raw_desc) == desc.encode()
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, 'a.ttarch2')
+        open(p, 'wb').write(raw_arch)
+        _, files = ttarch2.read_archive(p)
+    entries = []
+    for f in files:   # archive order is irrelevant: the writer sorts by name hash
+        if f['name'] in stocks:
+            assert hashlib.sha256(f['data']).hexdigest() == stocks[f['name']][1]
+            entries.append(dict(name=f['name'], stock=stocks[f['name']][0]))
+        else:
+            assert f['data'][:4] == b'\x1bLEn'
+            entries.append(dict(name=f['name'], bytecode=base64.b64encode(ttarch2.decrypt_lua(f['data'])).decode()))
+    return dict(season=season, descName=descName, archName=archName, descriptor=desc, files=entries,
+                outDesc=hashlib.sha256(raw_desc).hexdigest(), outArch=hashlib.sha256(raw_arch).hexdigest())
+
+
+def stock_dlg_sha():
+    _, files = ttarch2.read_archive(os.path.join(REPO, 'original', 'archives', SOURCE_ARCHIVE))
+    h = [hashlib.sha256(f['data']).hexdigest() for f in files if f['name'] == STOCK_DLG]
+    assert len(h) == 1 and h[0].startswith(build_skip43.STOCK_DLGMGR)
+    return h[0]
+
+
 def build_sets(luac):
-    """Build every season's release set with the CLI and turn it into page data."""
-    sets = []
+    """Build every season's release set and skip set with the CLI and turn them into page data."""
+    sets, skip = [], []
+    dlg_sha = stock_dlg_sha()
+    env = dict(os.environ, TWD_LUAC=luac)
     with tempfile.TemporaryDirectory() as tmp:
         for season in ('S1', 'S2', 'S3', 'S4', 'M'):
             out = os.path.join(tmp, season)
             subprocess.run([sys.executable, '-I', os.path.join(HERE, 'build_fix43.py'), season, out, '--release']
-                           + build_fix43.RELEASE[season], check=True, stdout=subprocess.DEVNULL,
-                           env=dict(os.environ, TWD_LUAC=luac))
-            c = build_fix43.SEASON[season]
-            desc, dname, aname = build_fix43.descriptor(c)
-            raw_desc = open(os.path.join(out, dname), 'rb').read()
-            raw_arch = open(os.path.join(out, aname), 'rb').read()
-            assert ttarch2.decrypt_lua(raw_desc) == desc.encode()
-            _, files = ttarch2.read_archive(os.path.join(out, aname))
-            entries = []
-            for f in files:   # archive order is irrelevant: the writer sorts by name hash
-                if f['name'] == 'TWD43_Tooltip_stock.lua':
-                    assert hashlib.sha256(f['data']).hexdigest() == STOCK_TOOLTIP
-                    entries.append(dict(name=f['name'], stock='Tooltip.lua'))
-                else:
-                    assert f['data'][:4] == b'\x1bLEn'
-                    entries.append(dict(name=f['name'], bytecode=base64.b64encode(ttarch2.decrypt_lua(f['data'])).decode()))
-            sets.append(dict(season=season, descName=dname, archName=aname, descriptor=desc, files=entries,
-                             outDesc=hashlib.sha256(raw_desc).hexdigest(), outArch=hashlib.sha256(raw_arch).hexdigest()))
-    return sets
+                           + build_fix43.RELEASE[season], check=True, stdout=subprocess.DEVNULL, env=env)
+            desc, dname, aname = build_fix43.descriptor(build_fix43.SEASON[season])
+            sets.append(set_data(season, dname, aname, desc, open(os.path.join(out, dname), 'rb').read(),
+                                 open(os.path.join(out, aname), 'rb').read(),
+                                 {'TWD43_Tooltip_stock.lua': ('Tooltip.lua', STOCK_TOOLTIP)}))
+            subprocess.run([sys.executable, '-I', os.path.join(HERE, 'build_skip43.py'), season, os.path.join(tmp, 'skip')],
+                           check=True, stdout=subprocess.DEVNULL, env=env)
+            sout = os.path.join(tmp, 'skip_' + season)
+            c = build_skip43.SEASONS[season]
+            desc, dname, aname = build_fix43.descriptor(dict(set=c['set'], dest=c['dest'], prio=build_skip43.PRIO))
+            skip.append(set_data(season, dname, aname, desc, open(os.path.join(sout, dname), 'rb').read(),
+                                 open(os.path.join(sout, aname), 'rb').read(),
+                                 {'TWD43_skip_dlgmgr_stock.lua': (STOCK_DLG, dlg_sha)} if season == 'S1' else {}))
+    return sets, skip, dlg_sha
 
 
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, 'web', 'app', 'twd43-data.js')
     luac = os.environ.get('TWD_LUAC') or sys.exit('set TWD_LUAC to the luac built by tools/build_luac52.sh')
     k43 = struct.pack('<f', 4 / 3)
+    sets, skip, dlg_sha = build_sets(luac)
     patches = [dict(name=n, va=va, old=o.hex(), new=w.hex()) for n, va, o, w in patch43.LEVELS[LEVEL]]
     data = dict(
         version='v2.0',
@@ -77,7 +106,7 @@ def main():
                  keepBind=True, caveVa=patch43.CAVE, cave=patch43.C10.hex(), k43Va=patch43.K43, k43=k43.hex(),
                  patches=patches),
         mod=dict(sourceArchive=SOURCE_ARCHIVE, stockName='Tooltip.lua', stockSha256=STOCK_TOOLTIP, chunk=0x10000,
-                 sets=build_sets(luac)),
+                 sets=sets, stockDlgName=STOCK_DLG, stockDlgSha256=dlg_sha, skipSets=skip),
         blowfish=dict(key=ttarch2.KEY.hex(), P=list(P), S=[list(s) for s in S]),
     )
     js = ('/* Generated by tools/gen_web_data.py from tools/patch43.py and tools/build_fix43.py. Do not edit.\n'
@@ -87,6 +116,7 @@ def main():
           ',\n'.join('  %s: %s' % (k, json.dumps(v, separators=(',', ':'))) for k, v in data.items()) + '\n};\n')
     open(out, 'w').write(js)
     print('wrote', out, len(js), 'bytes;', ', '.join('%s %s' % (s['season'], s['outArch'][:12]) for s in data['mod']['sets']))
+    print('skip:', ', '.join('%s %s' % (s['season'], s['outArch'][:12]) for s in data['mod']['skipSets']))
 
 
 if __name__ == '__main__':
