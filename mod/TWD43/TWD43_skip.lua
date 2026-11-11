@@ -1,10 +1,10 @@
--- TWD43_skip.lua: hold B (controller east button) for 1 s to skip the current cutscene stretch.
+-- TWD43_skip.lua: hold RB / R1 (controller right shoulder) for 1 s to skip the current cutscene stretch.
 -- Adapted from "TWDG-Skip" (Nexus Mods, The Walking Dead: The Telltale Definitive Series, mod 333), whose
 -- twd_skip_integrated.lua (hold-state model, native progress bar, eligibility checks, skip by seeking the dialog's
 -- playback controller) is kept here almost unchanged; credit to its author. Changes for twd-43aspect:
---   * controller: InputMapperKeyPressed(513) = kEventCodeButtonB (engine binding; S4 NavigateWD.lua polls pad codes
+--   * controller: InputMapperKeyPressed(517) = kEventCodeButtonR, RB / R1 (engine binding; S4 NavigateWD.lua polls pad codes
 --     with it), plus the original keyboard keys (Q, S1 also Space);
---   * hold 1 s instead of 3 s; caption "HOLD B TO SKIP";
+--   * hold 1 s instead of 3 s; caption "HOLD RB TO SKIP";
 --   * extra guard (all seasons): never skip a chore that keys a QTE / action / struggle / timer property;
 --   * Michonne (season 5) on the S3 path with that guard (no QTE registry getter there);
 --   * no log file writes.
@@ -490,7 +490,7 @@ local TWDNativeBar = (function()
       self:_call(TextSetScale, self.agents[7], 1)
       self:_call(AgentSetWorldPosFromLogicalScreenPos, self.agents[7], Vector(-2, -2, 0))
       self:_property(7, "Runtime: Visible", true)
-      local hint = "HOLD B TO SKIP"
+      local hint = "HOLD RB TO SKIP"
       self:_call(TextSet, self.agents[1], hint)
       self:_call(TextSetScale, self.agents[1], 0.6)
       self.caption = hint
@@ -601,7 +601,7 @@ local TWDNativeBar = (function()
     local xunit = 1.7777778 / aspect
     local left, edge = 0.5 - w / 2, 0.5 - w / 2 + w * p
     local pulse = view.phase == "success" and 1 or 0
-    local hint = view.phase == "success" and "SKIPPING..." or "HOLD B TO SKIP"
+    local hint = view.phase == "success" and "SKIPPING..." or "HOLD RB TO SKIP"
     if hint ~= self.caption then
       self:_call(TextSet, self.agents[1], hint)
       self.caption = hint
@@ -1088,13 +1088,13 @@ local function readInput()
   if type(q) ~= "boolean" or type(space) ~= "boolean" then
     return nil, nil, "invalid input state"
   end
-  -- controller B (east, kEventCodeButtonB = 513): engine poll of the held state, same call S4 NavigateWD.lua makes
+  -- controller RB / R1 (kEventCodeButtonR = kEventCodeR1 = 517; B was the first choice, the user asked for RB): engine poll of the held state, same call S4 NavigateWD.lua makes
   -- for pad codes; S1 falls back to Input.lua's own begin/end tracking. Counted as the "Q" key of the hold model.
   local pad = false
   if type(InputMapperKeyPressed) == "function" then
-    pad = InputMapperKeyPressed(513) and true or false
+    pad = InputMapperKeyPressed(517) and true or false
   elseif season == 1 and type(Input_IsButtonPressed) == "function" then
-    local ok, down = pcall(Input_IsButtonPressed, 513)
+    local ok, down = pcall(Input_IsButtonPressed, 517)
     pad = ok and down == true
   end
   return q or pad, space

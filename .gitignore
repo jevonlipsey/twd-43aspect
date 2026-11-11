@@ -67,3 +67,6 @@ backup/
 *.ttarch2
 luac.out
 screenshots/
+
+# third-party Nexus mod (reference only, never redistribute)
+skip-cutscene-mod/

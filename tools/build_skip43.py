@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the optional hold-B cutscene skip sets (one per season) that sit BESIDE the 4:3 sets.
+"""Build the optional hold-RB cutscene skip sets (one per season) that sit BESIDE the 4:3 sets.
 
   TWD_LUAC=<luac from tools/build_luac52.sh> python3 tools/build_skip43.py <S1|S2|S3|S4|M|all> [outdir_prefix]
   -> out/skip43_<s>/ : _resdesc_50_PC_P43_SKIP_<s>_01.lua + WDC_pc_PC_P43_SKIP_<s>_data.ttarch2 (+ .src for stubs)

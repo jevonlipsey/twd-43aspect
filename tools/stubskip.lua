@@ -1,8 +1,8 @@
--- Mac stub test for the hold-B skip sets (tools/build_skip43.py).
+-- Mac stub test for the hold-RB skip sets (tools/build_skip43.py).
 --   lua tools/stubskip.lua <S1|S2|S3|S4|M> out/skip43a_<s>/hook.src.lua mod/TWD43/TWD43_skip.lua
 -- Runs the real hook source and the real TWD43_skip.lua against a stubbed engine, frame by frame, and checks:
 -- 1 s hold skips once; a tap or a short hold does not; no repeat without release; never with a choice up, during a
--- QTE / action / struggle chore or mode, while paused, or outside a cutscene; a B press that began outside the cutscene
+-- QTE / action / struggle chore or mode, while paused, or outside a cutscene; an RB press that began outside the cutscene
 -- does not arm it; the 4:3 fix still loads (S2-M) / the stock dialog manager loads (S1); reload keeps ONE instance;
 -- the bar agents are destroyed again.
 local season, hookPath, skipPath = arg[1], arg[2], arg[3]
@@ -101,10 +101,10 @@ function Game_AllDialogsPaused() return S.paused end
 function Dialog_GetActiveCutscenes() return S.cutscene and {7} or {} end
 function SceneGetBottomScene() return "scene" end
 function Dialog_SkipCutscene(id) S.skips[#S.skips + 1] = id; return true end
--- input: keyboard never down; pad B through the engine poll
+-- input: keyboard never down; pad RB (517) through the engine poll
 function Input_IsPressed() return false end
 function Input_IsVKeyPressed() return false end
-function InputMapperKeyPressed(code) return code == 513 and S.padB end
+function InputMapperKeyPressed(code) return code == 517 and S.padB end
 
 -- resources
 local fixLoads, stockLoads, fixExists = 0, 0, true
@@ -160,9 +160,9 @@ check(skipped() == 0, "taps of 0.4 s never skip")
 -- choice up
 reset(); S.choices = {"a", "b"}; run(0.2, false); run(2, true)
 check(skipped() == 0, "choice on screen: no skip")
--- B pressed during the choice, held into the cutscene: not armed
+-- RB pressed during the choice, held into the cutscene: not armed
 S.choices = nil; run(2, true)
-check(skipped() == 0, "B held over from a choice does not skip")
+check(skipped() == 0, "RB held over from a choice does not skip")
 run(0.2, false); run(1.1, true)
 check(skipped() == 1, "fresh press after the choice skips")
 run(0.3, false)
